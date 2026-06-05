@@ -1,0 +1,21 @@
+{
+  "name": "ai-sdd",
+  "owner": {
+    "name": "AI-SDD Team"
+  },
+  "description": "AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件市场",
+  "plugins": [
+    {
+      "name": "ai-sdd",
+      "source": "./",
+      "description": "AI-SDD v3 方法论插件 -- 提供完整的规范驱动开发工作流：项目初始化、逆向文档化、文档健康检查、文档重建、变更管理（propose → explore → apply → sync → archive）",
+      "version": "1.0.0",
+      "author": {
+        "name": "AI-SDD Team"
+      },
+      "license": "MIT",
+      "category": "workflow",
+      "keywords": ["ai-sdd", "spec-driven-development", "workflow", "documentation", "methodology"]
+    }
+  ]
+}

@@ -6,17 +6,17 @@ AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件。
 
 ## 安装
 
-### 方式一：从 Community Marketplace 安装
+### 方式一：从 GitHub Marketplace 安装（推荐）
 
 ```
-/plugin marketplace add anthropics/claude-plugins-community
-/plugin install @claude-community/ai-sdd
+/plugin marketplace add zongzi78/ai-sdd-plugin
+/plugin install ai-sdd@ai-sdd
 ```
 
 ### 方式二：从 GitHub 本地安装
 
 ```bash
-git clone https://github.com/<owner>/ai-sdd-plugin.git
+git clone https://github.com/zongzi78/ai-sdd-plugin.git
 claude --plugin-dir ./ai-sdd-plugin
 ```
 
