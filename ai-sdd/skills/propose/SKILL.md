@@ -1,0 +1,113 @@
+---
+description: >
+  创建 change。接收用户的初步需求说明，产出专业的 proposal.md。不深入探索代码。
+  触发词：创建change、提出需求、新建变更、新功能、propose、提一个需求、开始一个变更
+---
+
+# sdd-propose（创建 change）
+
+## 定位
+
+轻量级需求入口。接收用户的初步需求说明，产出专业的 proposal.md。不深入探索代码。
+
+## 前置检查
+
+1. `.ai/` 不存在 → 提示"请先执行 `/ai-sdd:init` 初始化项目环境"，终止
+
+## 执行流程
+
+### 步骤 1：收集需求
+
+如用户未提供需求描述，通过 AskUserQuestion 询问三个问题：
+- 要做什么？（一句话）
+- 为什么要做？
+- 预期影响哪些模块？
+
+### 步骤 2：派生名称 + 检测碰撞
+
+1. 从描述中派生 kebab-case 名称（不确定时 AskUserQuestion 确认）
+2. 确定序号：扫描 `.ai/changes/` + `.ai/changes/archive/`，取最大序号+1（三位数补零）
+3. **碰撞检测**：扫描活跃 change + archive，名称冲突则追加 `-2`、`-3` 后缀
+
+### 步骤 3：创建 change 目录和文件
+
+1. 创建文件夹 `.ai/changes/NNN-功能名称/`
+2. 以更专业、更精准的角度重写用户需求，生成 `proposal.md`（模板见下方）
+3. 创建空的 `plan.md`（占位，仅含 front matter，后续由 `/ai-sdd:explore` 填充）
+
+### 步骤 4：更新 project-log.md
+
+更新 `.ai/project-log.md` 的「活跃 Change」区段，添加一行记录。
+
+### 步骤 5：输出摘要 + 引导
+
+```
+✅ Change 已创建：.ai/changes/NNN-功能名称/
+   proposal.md — 需求提案
+   plan.md     — 待填充（占位）
+
+接下来可通过 /ai-sdd:explore 深度探索代码并制定实施方案。
+```
+
+---
+
+## proposal.md 模板
+
+```markdown
+---
+title: "提案：[功能名称]"
+type: proposal
+created: YYYY-MM-DD
+status: draft
+---
+
+# [功能名称]
+
+## 背景与动机
+[为什么要做这个改动]
+
+## 目标
+[要达成什么效果]
+
+## 范围
+### 包含
+- [明确包含的内容]
+
+### 不包含
+- [明确排除的内容]
+
+## 影响范围分析
+
+​```mermaid
+graph LR
+    A["本次改动"] --> B["模块X"]
+    A --> C["模块Y"]
+    B --> D["依赖Z"]
+​```
+
+## 初步方案构想
+[如有初步技术思路，简述；否则标注"待探索阶段确定"]
+
+## 验收标准
+- [ ] [可验证的验收条件1]
+- [ ] [可验证的验收条件2]
+```
+
+---
+
+## Change Status 定义
+
+| 状态 | 含义 | 设置时机 |
+|------|------|----------|
+| `draft` | 刚创建，待探索 | propose 创建时 |
+| `exploring` | 探索中 | explore 开始时 |
+| `planned` | 方案已确定 | explore 完成 plan.md 后 |
+| `implementing` | 编码中 | apply 开始时 |
+| `completed` | 已完成 | archive 归档时 |
+
+---
+
+## 联动设计
+
+- **拒绝路径**：`.ai/` 不存在 → 提示运行 `/ai-sdd:init`
+- **完成后引导**：`✅ Change 已创建：.ai/changes/NNN-xxx/。接下来可通过 /ai-sdd:explore 深度探索代码并制定实施方案。`
