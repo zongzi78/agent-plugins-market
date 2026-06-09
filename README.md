@@ -34,25 +34,7 @@ cp -r window-screenshot-plugin ~/.claude/skills/window-screenshot
 
 安装插件后，当你说"截一下 XXX"时，Agent 会自动执行以下工作流：
 
-### 第 1 步：映射应用名到进程名
-
-| 用户说法 | ProcessName | 备注 |
-|---------|-------------|------|
-| 微信/WeChat | WeChat | — |
-| QQ | QQ | — |
-| 钉钉/DingTalk | DingTalk | — |
-| Chrome/浏览器 | chrome | 多进程，用窗口标题区分 |
-| Edge | msedge | 多进程，用窗口标题区分 |
-| VS Code | Code | 标题含文件名 |
-| 记事本/Notepad | notepad | — |
-| Word | WINWORD | — |
-| Excel | EXCEL | — |
-| PowerPoint | POWERPNT | — |
-| 文件管理器 | explorer | — |
-| 终端/Terminal | WindowsTerminal | — |
-| PowerShell | pwsh / powershell | — |
-
-### 第 2 步：枚举窗口（表中没有时）
+### 第 1 步：枚举窗口
 
 ```powershell
 $skillDir = "<SKILL_DIR>"
@@ -60,7 +42,7 @@ $script = Join-Path $skillDir "scripts\Capture-Window.ps1"
 powershell -ExecutionPolicy Bypass -File $script -ListWindows
 ```
 
-### 第 3 步：截图
+### 第 2 步：截图
 
 ```powershell
 $skillDir = "<SKILL_DIR>"
