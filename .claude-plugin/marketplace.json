@@ -1,0 +1,21 @@
+{
+  "name": "window-screenshot",
+  "owner": {
+    "name": "zongzi78"
+  },
+  "description": "Claude Code window screenshot plugin marketplace",
+  "plugins": [
+    {
+      "name": "window-screenshot",
+      "source": "./",
+      "description": "窗口截图技能 -- 通过 PrintWindow/BitBlt API 截取任意 Windows 应用窗口，即使最小化或被遮挡也能完整截取",
+      "version": "1.0.0",
+      "author": {
+        "name": "zongzi78"
+      },
+      "license": "MIT",
+      "category": "tool",
+      "keywords": ["screenshot", "window-capture", "windows", "printwindow", "bitblt", "gui"]
+    }
+  ]
+}

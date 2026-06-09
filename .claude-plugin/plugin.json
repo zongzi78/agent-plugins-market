@@ -1,0 +1,9 @@
+{
+  "name": "window-screenshot",
+  "description": "Window screenshot skill for Claude Code on Windows. Captures any application window via Win32 PrintWindow/BitBlt APIs, even when minimized or obscured. Pure PowerShell, zero external dependencies.",
+  "version": "1.0.0",
+  "author": {
+    "name": "zongzi78"
+  },
+  "license": "MIT"
+}
