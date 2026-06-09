@@ -99,6 +99,10 @@ public class Win32 {
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
         int X, int Y, int cx, int cy, uint uFlags);
+
+    // Messages
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 }
 "@
 
@@ -112,6 +116,9 @@ $script:HWND_TOPMOST = [IntPtr]::new(-1)
 $script:HWND_NOTOPMOST = [IntPtr]::new(-2)
 $script:SWP_NOMOVE = 0x0002
 $script:SWP_NOSIZE = 0x0001
+$script:WM_SYSCOMMAND = 0x0112
+$script:SC_RESTORE = 0xF120
+$script:SC_MINIMIZE = 0xF020
 
 # DPI awareness — ensure real pixel coordinates
 [Win32]::SetProcessDPIAware() | Out-Null

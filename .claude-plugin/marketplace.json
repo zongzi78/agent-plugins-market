@@ -9,7 +9,7 @@
       "name": "window-screenshot",
       "source": "./",
       "description": "窗口截图技能 -- 通过 PrintWindow/BitBlt API 截取任意 Windows 应用窗口，即使最小化或被遮挡也能完整截取",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "zongzi78"
       },

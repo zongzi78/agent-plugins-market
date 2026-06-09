@@ -47,15 +47,45 @@ function Capture-WindowScreenshot {
 
     $hwnd = [IntPtr]::new($window.hwnd)
     $wasMinimized = $false
+    $restoreFailed = $false
     $wasTopmost = $false
     $originalFgHwnd = [IntPtr]::Zero
 
     try {
-        # --- Pre-capture: restore minimized window ---
+        # --- Pre-capture: restore minimized window (progressive) ---
         if ([Win32]::IsIconic($hwnd)) {
-            [Win32]::ShowWindow($hwnd, $script:SW_RESTORE) | Out-Null
             $wasMinimized = $true
-            Start-Sleep -Milliseconds 300
+
+            # Step 1: Simple ShowWindow (works for most apps)
+            [Win32]::ShowWindow($hwnd, $script:SW_RESTORE) | Out-Null
+            Start-Sleep -Milliseconds 100
+
+            if ([Win32]::IsIconic($hwnd)) {
+                # Step 2: Foreground permission trick + ShowWindow
+                $originalFgHwnd = [Win32]::GetForegroundWindow()  # Save before switching
+                [Win32]::keybd_event(0x12, 0, 0x01, [UIntPtr]::Zero)
+                [Win32]::keybd_event(0x12, 0, 0x01 -bor 0x02, [UIntPtr]::Zero)
+                [Win32]::SetForegroundWindow($hwnd) | Out-Null
+                Start-Sleep -Milliseconds 50
+                [Win32]::ShowWindow($hwnd, $script:SW_RESTORE) | Out-Null
+                Start-Sleep -Milliseconds 100
+
+                if ([Win32]::IsIconic($hwnd)) {
+                    # Step 3: WM_SYSCOMMAND SC_RESTORE (mimics taskbar click)
+                    [Win32]::SendMessage($hwnd, $script:WM_SYSCOMMAND,
+                        [IntPtr]$script:SC_RESTORE, [IntPtr]::Zero) | Out-Null
+                    Start-Sleep -Milliseconds 200
+
+                    if ([Win32]::IsIconic($hwnd)) {
+                        $restoreFailed = $true
+                    }
+                }
+            }
+
+            if (-not $restoreFailed) {
+                # Window restored — extra wait for content to render
+                Start-Sleep -Milliseconds 300
+            }
         }
 
         # --- Pre-capture: handle UWP apps ---
@@ -130,8 +160,10 @@ function Capture-WindowScreenshot {
         # Tier 3: Bring to top + BitBlt screen capture
         # ============================================================
         if (-not $captured) {
-            # Save current foreground window for restoration
-            $originalFgHwnd = [Win32]::GetForegroundWindow()
+            # Save current foreground window for restoration (only if not already saved by progressive restore)
+            if ($originalFgHwnd -eq [IntPtr]::Zero) {
+                $originalFgHwnd = [Win32]::GetForegroundWindow()
+            }
 
             # Bypass Windows foreground restriction: simulate Alt key
             # This releases the lock that prevents background processes from calling SetForegroundWindow
@@ -164,8 +196,17 @@ function Capture-WindowScreenshot {
                 $bltResult = [Win32]::BitBlt($memDC, 0, 0, $width, $height,
                     $screenDC, $rect.Left, $rect.Top, $script:SRCCOPY)
                 if ($bltResult) {
-                    $captured = $true
-                    $finalMethod = "BitBlt"
+                    if (-not (Test-ImageUniformity $hBitmap $width $height)) {
+                        $captured = $true
+                        $finalMethod = "BitBlt"
+                    }
+                    else {
+                        # Uniform image (likely black) — not a valid capture
+                        [Win32]::SelectObject($memDC, $oldBitmap) | Out-Null
+                        [Win32]::DeleteObject($hBitmap) | Out-Null
+                        [Win32]::DeleteDC($memDC) | Out-Null
+                        [Win32]::ReleaseDC([IntPtr]::Zero, $screenDC) | Out-Null
+                    }
                 }
                 else {
                     [Win32]::SelectObject($memDC, $oldBitmap) | Out-Null
@@ -190,9 +231,15 @@ function Capture-WindowScreenshot {
         # Result
         # ============================================================
         if (-not $captured) {
+            if ($restoreFailed) {
+                $errorMsg = "All capture methods failed. Window is minimized and could not be restored. The application may have restrictions on background window restoration."
+            }
+            else {
+                $errorMsg = "All capture methods failed. The application may not support WM_PRINT and screen capture was not possible."
+            }
             return @{
                 success = $false
-                error = "All capture methods failed. The application may not support WM_PRINT and screen capture was not possible."
+                error = $errorMsg
             }
         }
 
@@ -221,19 +268,24 @@ function Capture-WindowScreenshot {
         }
     }
     finally {
-        # Safety net: restore foreground window if Tier 3 errored mid-way
+        # Remove topmost state if it was set (must do before restoring foreground)
         if ($wasTopmost) {
-            if ($originalFgHwnd -ne [IntPtr]::Zero) {
-                [Win32]::SetForegroundWindow($originalFgHwnd) | Out-Null
-            }
-            else {
-                [Win32]::SetWindowPos($hwnd, $script:HWND_NOTOPMOST, 0, 0, 0, 0,
-                    ($script:SWP_NOMOVE -bor $script:SWP_NOSIZE)) | Out-Null
-            }
+            [Win32]::SetWindowPos($hwnd, $script:HWND_NOTOPMOST, 0, 0, 0, 0,
+                ($script:SWP_NOMOVE -bor $script:SWP_NOSIZE)) | Out-Null
         }
-        # Restore minimized state
-        if ($wasMinimized) {
+        # Restore original foreground window (progressive restore or Tier 3 may have changed it)
+        if ($originalFgHwnd -ne [IntPtr]::Zero) {
+            [Win32]::SetForegroundWindow($originalFgHwnd) | Out-Null
+        }
+        # Restore minimized state (skip if restore originally failed — window was never restored)
+        if ($wasMinimized -and -not $restoreFailed) {
             [Win32]::ShowWindow($hwnd, $script:SW_MINIMIZE) | Out-Null
+            Start-Sleep -Milliseconds 50
+            # Fallback: if ShowWindow didn't work, try SendMessage SC_MINIMIZE
+            if (-not [Win32]::IsIconic($hwnd)) {
+                [Win32]::SendMessage($hwnd, $script:WM_SYSCOMMAND,
+                    [IntPtr]$script:SC_MINIMIZE, [IntPtr]::Zero) | Out-Null
+            }
         }
     }
 }

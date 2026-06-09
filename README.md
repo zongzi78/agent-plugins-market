@@ -2,6 +2,12 @@
 
 在 Windows 上截取任意应用程序窗口的 Claude Code 插件。通过 Win32 PrintWindow / BitBlt API 实现，即使窗口被最小化或遮挡也能完整截取。纯 PowerShell 实现，零外部依赖。
 
+## 系统要求
+
+- **操作系统：** Windows 10 (1803+) / Windows 11
+- **PowerShell：** 5.1+（Windows 内置）
+- **依赖：** 无（纯 PowerShell + Win32 API）
+
 ## 安装
 
 ### 方式一：从 GitHub Marketplace 安装（推荐）
@@ -88,11 +94,11 @@ powershell -ExecutionPolicy Bypass -File $script -ProcessName "notepad" -OutputP
 
 - **三级截取自动选择**：优先 PrintWindow（不干扰用户），失败后自动切换到 BitBlt 屏幕截取
 - **黑屏检测**：通过采样 9 个像素点检测图像均匀性，自动判断截取是否成功
-- **最小化窗口**：自动临时恢复再截图，截完后恢复最小化状态
+- **最小化窗口渐进式恢复**：对最小化窗口自动执行 3 步恢复（ShowWindow → 前台权限提升 → SC_RESTORE 消息），覆盖 Qt 等特殊应用，截完后自动恢复最小化和原始窗口层叠
 - **UWP 应用**：自动穿透 ApplicationFrameWindow 查找实际内容窗口
 - **DPI 感知**：截图为真实物理像素，不受 DPI 缩放影响
 - **Qt 应用支持**：不支持 PrintWindow 的 Qt 应用会自动触发 BitBlt 截图，窗口短暂置顶后自动恢复
-- **前台窗口保护**：BitBlt 截图时自动保存/恢复原前台窗口，通过 Alt 键模拟绕过前台锁
+- **前台窗口保护**：截图时自动保存/恢复原前台窗口和 Z-order，通过 Alt 键模拟绕过前台锁
 
 ## 许可证
 
