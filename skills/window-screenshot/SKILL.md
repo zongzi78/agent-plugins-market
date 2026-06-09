@@ -32,27 +32,7 @@ powershell -ExecutionPolicy Bypass -File $script -ProcessName "notepad" -OutputP
 
 当用户说"截一下 XXX"时，按以下步骤操作：
 
-### 第 1 步：映射应用名到进程名
-
-查下表，如果用户提到的应用在表中，直接使用对应的 ProcessName：
-
-| 用户说法 | ProcessName | 备注 |
-|---------|-------------|------|
-| 微信/WeChat | WeChat | — |
-| QQ | QQ | — |
-| 钉钉/DingTalk | DingTalk | — |
-| Chrome/浏览器 | chrome | 多进程，用窗口标题区分 |
-| Edge | msedge | 多进程，用窗口标题区分 |
-| VS Code | Code | 标题含文件名 |
-| 记事本/Notepad | notepad | — |
-| Word | WINWORD | — |
-| Excel | EXCEL | — |
-| PowerPoint | POWERPNT | — |
-| 文件管理器/File Explorer | explorer | — |
-| 终端/Terminal | WindowsTerminal | — |
-| PowerShell | pwsh / powershell | — |
-
-### 第 2 步：枚举窗口（表中没有时）
+### 第 1 步：枚举窗口
 
 ```powershell
 $skillDir = "<SKILL_DIR>"
@@ -62,7 +42,7 @@ powershell -ExecutionPolicy Bypass -File $script -ListWindows
 
 从返回的 JSON 中搜索匹配用户描述的窗口标题，找到对应的进程名和 PID。
 
-### 第 3 步：截图
+### 第 2 步：截图
 
 ```powershell
 $skillDir = "<SKILL_DIR>"
