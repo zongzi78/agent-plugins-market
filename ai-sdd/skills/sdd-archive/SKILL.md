@@ -40,13 +40,13 @@ description: >
 1. **更新 proposal.md 的 status 字段**：
    - 正常归档：改为 `completed`
    - 放弃时：改为 `abandoned`
-2. 创建 archive 目录（如不存在）
+2. 创建 `.ai/changes/archive/` 目录（如不存在）
 3. **确定归档序号**：
    - 获取当天日期 `YYYYMMDD`
    - 扫描 `.ai/changes/archive/` 中以该日期开头的文件夹，取其中最大序号+1（三位数补零）
    - 如果当天无已有归档，序号从 `001` 开始
 4. 将 change 文件夹重命名为 `YYYYMMDD-NNN-名称`，移入 `.ai/changes/archive/`
-   - 示例：archive 中已有 `20260611-003-xxx`，当天归档时序号为 `004`
+   - 示例：.ai/changes/archive/ 中已有 `20260611-003-xxx`，当天归档时序号为 `004`
 5. **碰撞检测**：如果目标路径已存在，追加 `-a`、`-b` 后缀
 
 ### 步骤 5：更新 project-log.md

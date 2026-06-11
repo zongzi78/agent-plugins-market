@@ -27,7 +27,7 @@ description: >
 
 ### 步骤 2：并行冲突检测
 
-1. 扫描 `.ai/changes/`（排除 archive）中所有其他活跃 change 的 plan.md
+1. 扫描 `.ai/changes/`（排除 `.ai/changes/archive/`）中所有其他活跃 change 的 plan.md
 2. 检查它们的 `## 文档变更` 表是否声明了相同目标文件 + 相同章节
 3. 如有冲突 → AskUserQuestion（继续合并 / 跳过该文件 / 取消）
 

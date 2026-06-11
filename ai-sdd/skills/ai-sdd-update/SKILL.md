@@ -42,10 +42,10 @@ description: >
 
 在展示变更内容之前，检查本 skill 的模板与 `/ai-sdd-init` 的模板是否一致：
 
-1. 对比以下模板文件：
-   - `skills/ai-sdd-init/templates/supplement-rules.md` vs `skills/ai-sdd-update/templates/supplement-rules.md`
-   - `skills/ai-sdd-init/templates/project-log.md` vs `skills/ai-sdd-update/templates/project-log.md`
-   - `skills/ai-sdd-init/templates/doc/` vs `skills/ai-sdd-update/templates/doc/`（4 个 doc 模板）
+1. 对比两个 skill 的 `templates/` 目录中对应文件是否一致：
+   - `templates/supplement-rules.md`
+   - `templates/project-log.md`
+   - `templates/doc/`（4 个 doc 模板）
 2. 如不一致 → 警告用户"init 和 update 的模板不一致，update 的模板可能不是最新版"，列出不一致的文件
 3. 如一致 → 继续步骤 4
 
@@ -60,7 +60,7 @@ description: >
 ### 步骤 5：确认并替换
 
 1. 展示变更摘要
-2. 用 templates/ 中的最新版替换项目中的 `.ai/supplement-rules.md`
+2. 用本 skill 的 `templates/` 中的最新版替换项目中的 `.ai/supplement-rules.md`
 3. 保留项目中可能存在的 YAML front matter 中的 `updated_by` 等项目特定字段（如有）
 
 ### 步骤 6：后续提示
