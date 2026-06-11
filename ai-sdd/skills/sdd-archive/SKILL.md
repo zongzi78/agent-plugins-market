@@ -45,7 +45,7 @@ description: >
    - 获取当天日期 `YYYYMMDD`
    - 扫描 `.ai/changes/archive/` 中以该日期开头的文件夹，取其中最大序号+1（三位数补零）
    - 如果当天无已有归档，序号从 `001` 开始
-4. 移动 change 文件夹到 `.ai/changes/archive/YYYYMMDD-NNN-名称/`
+4. 将 change 文件夹重命名为 `YYYYMMDD-NNN-名称`，移入 `.ai/changes/archive/`
    - 示例：archive 中已有 `20260611-003-xxx`，当天归档时序号为 `004`
 5. **碰撞检测**：如果目标路径已存在，追加 `-a`、`-b` 后缀
 
@@ -57,7 +57,7 @@ description: >
 ### 步骤 6：输出归档摘要
 
 ```
-✅ Change 已归档：.ai/changes/archive/YYYYMMDD-NNN-名称/
+✅ Change 已归档：.ai/changes/archive/YYYYMMDD-NNN-名称
    任务完成：X/Y
    文档同步：已同步/未同步
 ```
@@ -68,7 +68,7 @@ description: >
 
 用户选择"放弃"时：
 - proposal.md status 改为 `abandoned`
-- 移动到 `.ai/changes/archive/YYYYMMDD-NNN-名称-abandoned/`（序号规则同上）
+- 重命名为 `YYYYMMDD-NNN-名称-abandoned`，移入 `.ai/changes/archive/`（序号规则同上）
 - project-log.md 记录为"已放弃"
 
 ---
@@ -77,4 +77,4 @@ description: >
 
 - **拒绝路径**：无活跃 change → 提示"没有活跃的 change 需要归档"
 - **归档前提示（如有未同步变更）**：`📋 该 change 有文档变更尚未同步。建议先运行 /sdd-sync 更新项目文档。`
-- **归档后提示**：`✅ Change 已归档：.ai/changes/archive/YYYYMMDD-NNN-名称/`
+- **归档后提示**：`✅ Change 已归档：.ai/changes/archive/YYYYMMDD-NNN-名称`
