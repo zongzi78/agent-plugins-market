@@ -1,4 +1,5 @@
 ---
+name: ai-sdd-rebuild
 description: >
   AI-SDD 文档重建。当规范文档与代码严重脱节时，从代码重新生成。
   rebuild = check + 按角色重写。遵循"创建心态"质量规则。
@@ -13,7 +14,7 @@ description: >
 
 ## 前置检查
 
-与 `/ai-sdd:check` 相同：
+与 `/ai-sdd-check` 相同：
 1. 检查 `.ai/` 是否存在
 2. 检查 `.ai/doc/` 是否存在且有内容
 
@@ -21,7 +22,7 @@ description: >
 
 ### 步骤 1：执行漂移检测
 
-按照 `/ai-sdd:check` 的流程，执行完整的四维度漂移检测。
+按照 `/ai-sdd-check` 的流程，执行完整的四维度漂移检测。
 
 ### 步骤 2：展示诊断结果
 

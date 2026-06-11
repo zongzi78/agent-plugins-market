@@ -1,4 +1,5 @@
 ---
+name: ai-sdd-update
 description: >
   更新项目中的 AI-SDD 行为准则（supplement-rules.md）到最新版本。
   只更新"宪法层"，不修改项目私有文件。
@@ -21,7 +22,7 @@ description: >
 
 ## 前置检查
 
-1. 检查 `.ai/supplement-rules.md` 是否存在 → 如不存在，提示先运行 `/ai-sdd:init`
+1. 检查 `.ai/supplement-rules.md` 是否存在 → 如不存在，提示先运行 `/ai-sdd-init`
 2. 读取当前文件的 `version` 字段
 
 ## 执行流程
@@ -39,12 +40,12 @@ description: >
 
 ### 步骤 3：模板一致性校验
 
-在展示变更内容之前，检查本 skill 的模板与 `/ai-sdd:init` 的模板是否一致：
+在展示变更内容之前，检查本 skill 的模板与 `/ai-sdd-init` 的模板是否一致：
 
 1. 对比以下模板文件：
-   - `skills/init/templates/supplement-rules.md` vs `skills/update/templates/supplement-rules.md`
-   - `skills/init/templates/project-log.md` vs `skills/update/templates/project-log.md`
-   - `skills/init/templates/doc/` vs `skills/update/templates/doc/`（4 个 doc 模板）
+   - `skills/ai-sdd-init/templates/supplement-rules.md` vs `skills/ai-sdd-update/templates/supplement-rules.md`
+   - `skills/ai-sdd-init/templates/project-log.md` vs `skills/ai-sdd-update/templates/project-log.md`
+   - `skills/ai-sdd-init/templates/doc/` vs `skills/ai-sdd-update/templates/doc/`（4 个 doc 模板）
 2. 如不一致 → 警告用户"init 和 update 的模板不一致，update 的模板可能不是最新版"，列出不一致的文件
 3. 如一致 → 继续步骤 4
 

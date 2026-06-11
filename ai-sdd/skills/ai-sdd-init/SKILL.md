@@ -1,4 +1,5 @@
 ---
+name: ai-sdd-init
 description: >
   初始化 AI-SDD 项目结构。在项目中创建 .ai/ 目录，包含 supplement-rules.md、project-log.md、doc/、changes/、ref/。
   触发词：AI-SDD 初始化、初始化 .ai 目录、给项目加上 AI 规范、SDD 初始化、.ai init
@@ -71,20 +72,20 @@ description: >
 AI-SDD v3 工作流概览：
 
 日常功能开发流程：
-  /ai-sdd:propose → /ai-sdd:explore → /ai-sdd:apply → /ai-sdd:sync → /ai-sdd:archive
-  (创建change)      (探索规划)        (执行编码)       (同步文档)      (归档)
+  /sdd-propose → /sdd-explore → /sdd-apply → /sdd-sync → /sdd-archive
+  (创建change)   (探索规划)     (执行编码)    (同步文档)   (归档)
 
 工程环境技能（低频使用）：
-  /ai-sdd:init      — 项目初始化（本技能）
-  /ai-sdd:reverse   — 遗留项目逆向文档化
-  /ai-sdd:check     — 文档健康检查（漂移检测）
-  /ai-sdd:rebuild   — 文档严重漂移时重建
-  /ai-sdd:update    — supplement-rules.md 版本更新
+  /ai-sdd-init      — 项目初始化（本技能）
+  /ai-sdd-reverse   — 遗留项目逆向文档化
+  /ai-sdd-check     — 文档健康检查（漂移检测）
+  /ai-sdd-rebuild   — 文档严重漂移时重建
+  /ai-sdd-update    — supplement-rules.md 版本更新
 
 工作流技能（高频使用）：
-  /ai-sdd:propose   — 创建 change（需求入口）
-  /ai-sdd:explore   — 深度探索 + 制定实施方案
-  /ai-sdd:apply     — 按 plan 执行编码
-  /ai-sdd:sync      — 设计变更同步回 .ai/doc/
-  /ai-sdd:archive   — 归档完成的 change
+  /sdd-propose   — 创建 change（需求入口）
+  /sdd-explore   — 深度探索 + 制定实施方案
+  /sdd-apply     — 按 plan 执行编码
+  /sdd-sync      — 设计变更同步回 .ai/doc/
+  /sdd-archive   — 归档完成的 change
 ```

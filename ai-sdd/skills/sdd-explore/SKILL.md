@@ -1,4 +1,5 @@
 ---
+name: sdd-explore
 description: >
   深度探索代码 + 思维风暴，产出详尽的 plan.md。这是整个工作流中最重的一步。
   触发词：探索、规划、制定方案、写plan、explore、深度分析、设计方案、出方案
@@ -12,8 +13,8 @@ description: >
 
 ## 前置检查（Hard Gate）
 
-1. `.ai/` 不存在 → 提示"请先执行 `/ai-sdd:init`"，终止
-2. 无活跃 change → 拒绝，提示"请先通过 `/ai-sdd:propose` 创建一个 change"，终止
+1. `.ai/` 不存在 → 提示"请先执行 `/ai-sdd-init`"，终止
+2. 无活跃 change → 拒绝，提示"请先通过 `/sdd-propose` 创建一个 change"，终止
 3. 多个活跃 change → 让用户选择目标 change
 4. plan.md 非空（已有内容）→ 警告"plan.md 已有内容"，AskUserQuestion：覆盖 / 从当前状态继续 / 取消
 
@@ -50,10 +51,10 @@ description: >
 3. 每个任务必须包含的内容：
    - ✅ 完整文件路径、函数签名、数据结构定义
    - ✅ 伪代码级算法描述、精确的 CLI 命令、预期输出
-   - ❌ 不必有：生产级完整实现代码（那是 `/ai-sdd:apply` 的事）
+   - ❌ 不必有：生产级完整实现代码（那是 `/sdd-apply` 的事）
 4. **必须包含三个章节**：
 
-   **`## 文档变更`**（为 `/ai-sdd:sync` 提供结构化输入）：
+   **`## 文档变更`**（为 `/sdd-sync` 提供结构化输入）：
    ```markdown
    ## 文档变更
 
@@ -157,6 +158,6 @@ graph TD
 
 ## 联动设计
 
-- **拒绝路径**：无活跃 change → 提示运行 `/ai-sdd:propose`
-- **完成后引导**：`✅ 实施方案已写入 .ai/changes/NNN-xxx/plan.md。接下来可通过 /ai-sdd:apply 开始执行编码。`
+- **拒绝路径**：无活跃 change → 提示运行 `/sdd-propose`
+- **完成后引导**：`✅ 实施方案已写入 .ai/changes/NNN-xxx/plan.md。接下来可通过 /sdd-apply 开始执行编码。`
 - **如发现 proposal 需调整**：`⚠️ 探索过程中发现提案需要调整，建议先更新 proposal.md 再继续。`

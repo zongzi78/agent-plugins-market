@@ -1,4 +1,5 @@
 ---
+name: sdd-apply
 description: >
   严格按 plan.md 执行编码工作。逐步实施、溯源注释、验证铁律。
   触发词：执行、开始编码、实施、apply、开始开发、按计划实施、执行方案
@@ -12,8 +13,8 @@ description: >
 
 ## 前置检查（Hard Gate）
 
-1. 无活跃 change → 拒绝，提示"请先通过 `/ai-sdd:propose` 创建 change"
-2. plan.md 为空（仅占位 front matter）→ 拒绝，提示"请先通过 `/ai-sdd:explore` 制定实施方案"
+1. 无活跃 change → 拒绝，提示"请先通过 `/sdd-propose` 创建 change"
+2. plan.md 为空（仅占位 front matter）→ 拒绝，提示"请先通过 `/sdd-explore` 制定实施方案"
 3. 有多个活跃 change → 让用户选择
 4. plan.md 有已完成任务（`- [x]`）→ 提示"检测到部分任务已完成（X/N），将从第一个未完成任务继续"（断点续传）
 
@@ -55,7 +56,7 @@ description: >
 ## 暂停条件（6 种）
 
 1. **任务描述不清** → 询问，不猜测
-2. **发现设计问题** → 暂停，建议更新 plan.md 或回退到 `/ai-sdd:explore`
+2. **发现设计问题** → 暂停，建议更新 plan.md 或回退到 `/sdd-explore`
 3. **遇到错误/阻塞** → 报告等待指导
 4. **用户中断**
 5. **连续验证失败3次** → 停止，质疑方案本身
@@ -66,7 +67,7 @@ description: >
 ## 联动设计
 
 - **拒绝路径**：
-  - 无活跃 change → 提示运行 `/ai-sdd:propose`
-  - plan.md 为空 → 提示运行 `/ai-sdd:explore`
-- **完成后引导**：`✅ 所有任务已完成（N/N）。接下来可通过 /ai-sdd:sync 将设计变更同步到项目文档，然后通过 /ai-sdd:archive 归档本次 change。`
-- **暂停时提示**：`⏸ 实施暂停（M/N 任务完成）。问题解决后可再次运行 /ai-sdd:apply 继续。`
+  - 无活跃 change → 提示运行 `/sdd-propose`
+  - plan.md 为空 → 提示运行 `/sdd-explore`
+- **完成后引导**：`✅ 所有任务已完成（N/N）。接下来可通过 /sdd-sync 将设计变更同步到项目文档，然后通过 /sdd-archive 归档本次 change。`
+- **暂停时提示**：`⏸ 实施暂停（M/N 任务完成）。问题解决后可再次运行 /sdd-apply 继续。`

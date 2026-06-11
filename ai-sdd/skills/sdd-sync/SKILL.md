@@ -1,4 +1,5 @@
 ---
+name: sdd-sync
 description: >
   将 change 中的设计变更智能合并回 .ai/doc/ 主文档。按文档变更表执行 ADDED/MODIFIED/DELETED 操作。
   触发词：同步文档、合并文档、更新文档、sync、文档同步
@@ -69,8 +70,8 @@ description: >
 ## 联动设计
 
 - **拒绝路径**：
-  - 无活跃 change → 提示"请先通过 `/ai-sdd:propose` 创建 change"
-  - plan.md 为空 → 提示"请先通过 `/ai-sdd:explore` 制定方案"
-  - 文档变更表为空 → 提示"无需同步，可直接运行 `/ai-sdd:archive`"
-- **完成后引导**：`✅ 文档已同步。接下来可通过 /ai-sdd:archive 归档本次 change。`
-- **如无需同步**：`ℹ️ 本次 change 未涉及文档变更，无需同步。可直接运行 /ai-sdd:archive 归档。`
+  - 无活跃 change → 提示"请先通过 `/sdd-propose` 创建 change"
+  - plan.md 为空 → 提示"请先通过 `/sdd-explore` 制定方案"
+  - 文档变更表为空 → 提示"无需同步，可直接运行 `/sdd-archive`"
+- **完成后引导**：`✅ 文档已同步。接下来可通过 /sdd-archive 归档本次 change。`
+- **如无需同步**：`ℹ️ 本次 change 未涉及文档变更，无需同步。可直接运行 /sdd-archive 归档。`
