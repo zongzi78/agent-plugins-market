@@ -27,27 +27,6 @@ codex plugin marketplace add zongzi78/agent-plugins-market
 
 安装后在 Plugins 列表中选择需要的插件。
 
-## 快速开始
-
-### AI-SDD
-
-```
-/ai-sdd-init
-/sdd-propose 帮我实现 XXX 功能
-```
-
-详见 [ai-sdd/README.md](./ai-sdd/README.md)
-
-### Window Screenshot
-
-安装后，Agent 会在需要截图时自动使用。也可手动触发：
-
-```
-截一下当前窗口
-```
-
-详见 [window-screenshot/README.md](./window-screenshot/README.md)
-
 ## 添加新插件
 
 1. 在仓库根目录下创建新的 plugin 文件夹

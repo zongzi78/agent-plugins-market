@@ -4,8 +4,6 @@ AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件。
 
 一套完整的规范驱动开发工作流，让你的 AI 编码助手从"无脑写代码"升级为"有章法的协作开发"。
 
-支持 **Claude Code** 和 **OpenAI Codex** 两个平台。
-
 ## 技能列表
 
 ### 环境技能（低频）

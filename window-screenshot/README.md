@@ -2,8 +2,6 @@
 
 在 Windows 上截取任意应用程序窗口的插件。通过 Win32 PrintWindow / BitBlt API 实现，即使窗口被最小化或遮挡也能完整截取。纯 PowerShell 实现，零外部依赖。
 
-支持 **Claude Code** 和 **OpenAI Codex** 两个平台。
-
 ## 系统要求
 
 - **操作系统：** Windows 10 (1803+) / Windows 11
