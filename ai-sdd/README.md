@@ -1,29 +1,77 @@
-# AI-SDD Plugin for Claude Code
+# AI-SDD Plugin
 
 AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件。
 
 一套完整的规范驱动开发工作流，让你的 AI 编码助手从"无脑写代码"升级为"有章法的协作开发"。
 
+支持 **Claude Code** 和 **OpenAI Codex** 两个平台。
+
 ## 安装
 
-### 方式一：从 GitHub Marketplace 安装（推荐）
+### Claude Code
+
+#### 方式一：从 GitHub Marketplace 安装（推荐）
 
 ```
 /plugin marketplace add zongzi78/ai-sdd-plugin
 /plugin install ai-sdd@ai-sdd
 ```
 
-### 方式二：从 GitHub 本地安装
+#### 方式二：从 GitHub 本地安装
 
 ```bash
 git clone https://github.com/zongzi78/ai-sdd-plugin.git
 claude --plugin-dir ./ai-sdd-plugin
 ```
 
-### 方式三：复制到 skills 目录
+#### 方式三：复制到 skills 目录
 
 ```bash
 cp -r ai-sdd-plugin ~/.claude/skills/ai-sdd
+```
+
+### OpenAI Codex
+
+#### 方式一：从 GitHub 安装（推荐）
+
+```bash
+codex plugin marketplace add zongzi78/ai-sdd-plugin
+```
+
+#### 方式二：克隆后本地安装
+
+```bash
+git clone https://github.com/zongzi78/ai-sdd-plugin.git
+codex plugin marketplace add ./ai-sdd-plugin
+```
+
+#### 方式三：在项目中配置 marketplace
+
+在你的项目根目录创建 `.agents/plugins/marketplace.json`：
+
+```json
+{
+  "name": "my-plugins",
+  "interface": {
+    "displayName": "My Plugins"
+  },
+  "plugins": [
+    {
+      "name": "ai-sdd",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/zongzi78/ai-sdd-plugin.git",
+        "path": "./",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    }
+  ]
+}
 ```
 
 ## 技能列表
@@ -56,11 +104,17 @@ cp -r ai-sdd-plugin ~/.claude/skills/ai-sdd
    /ai-sdd-init
    ```
 
-2. 在 `CLAUDE.md` 中添加：
+2. 在配置文件中添加指令：
 
-   ```
-   请先阅读 .ai/supplement-rules.md，然后按照其中的规则行事。
-   ```
+   - **Claude Code** — 在 `CLAUDE.md` 中添加：
+     ```
+     请先阅读 .ai/supplement-rules.md，然后按照其中的规则行事。
+     ```
+
+   - **Codex** — 在 `AGENTS.md` 中添加：
+     ```
+     请先阅读 .ai/supplement-rules.md，然后按照其中的规则行事。
+     ```
 
 3. 开始开发：
 

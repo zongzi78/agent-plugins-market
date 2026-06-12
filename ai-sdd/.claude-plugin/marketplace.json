@@ -1,5 +1,8 @@
 {
   "name": "ai-sdd",
+  "interface": {
+    "displayName": "AI-SDD Plugins"
+  },
   "owner": {
     "name": "AI-SDD Team"
   },
@@ -14,8 +17,12 @@
         "name": "AI-SDD Team"
       },
       "license": "MIT",
-      "category": "workflow",
-      "keywords": ["ai-sdd", "spec-driven-development", "workflow", "documentation", "methodology"]
+      "category": "Development",
+      "keywords": ["ai-sdd", "spec-driven-development", "workflow", "documentation", "methodology"],
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
     }
   ]
 }

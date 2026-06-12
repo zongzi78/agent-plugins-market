@@ -5,6 +5,8 @@
   "author": {
     "name": "AI-SDD Team"
   },
+  "homepage": "https://github.com/zongzi78/ai-sdd-plugin",
+  "repository": "https://github.com/zongzi78/ai-sdd-plugin",
   "license": "MIT",
   "keywords": ["ai-sdd", "spec-driven-development", "workflow", "documentation", "methodology"],
   "skills": "./skills/",
