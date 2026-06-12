@@ -1,0 +1,22 @@
+{
+  "name": "window-screenshot",
+  "version": "1.0.2",
+  "description": "Window screenshot skill for Claude Code on Windows. Captures any application window via Win32 PrintWindow/BitBlt APIs, even when minimized or obscured. Pure PowerShell, zero external dependencies.",
+  "author": {
+    "name": "zongzi78"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Window Screenshot",
+    "shortDescription": "Windows 窗口截图工具",
+    "longDescription": "通过 PrintWindow API 截取指定进程的 GUI 窗口，即使窗口被遮挡或在后台也能完整截取。纯 PowerShell 实现，零外部依赖。",
+    "developerName": "zongzi78",
+    "category": "Productivity",
+    "capabilities": ["Read"],
+    "defaultPrompt": [
+      "截取当前活跃窗口的截图",
+      "截取指定应用的窗口截图"
+    ]
+  }
+}

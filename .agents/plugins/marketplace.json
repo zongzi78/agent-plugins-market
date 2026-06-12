@@ -1,0 +1,32 @@
+{
+  "name": "selfskill-plugins",
+  "interface": {
+    "displayName": "Selfskill Plugins"
+  },
+  "plugins": [
+    {
+      "name": "ai-sdd",
+      "source": {
+        "source": "local",
+        "path": "./ai-sdd"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "window-screenshot",
+      "source": {
+        "source": "local",
+        "path": "./window-screenshot"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
