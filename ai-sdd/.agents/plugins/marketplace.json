@@ -1,0 +1,20 @@
+{
+  "name": "ai-sdd-plugins",
+  "interface": {
+    "displayName": "AI-SDD Plugins"
+  },
+  "plugins": [
+    {
+      "name": "ai-sdd",
+      "source": {
+        "source": "local",
+        "path": "../../"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    }
+  ]
+}
