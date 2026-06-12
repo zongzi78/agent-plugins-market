@@ -1,5 +1,6 @@
 {
   "name": "selfskill-plugins",
+  "description": "统一的 AI Agent 插件市场 -- 包含 Claude Code 和 OpenAI Codex 平台的插件",
   "owner": {
     "name": "zongzi78"
   },
