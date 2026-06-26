@@ -77,26 +77,23 @@ description: >
 
 2. 对每个批次：
 
-   **【串行批次 — 直接执行】**
+   **【串行批次 — 主 Agent 直接执行】**
    - 标记 in_progress → 严格按 plan 步骤执行 → 运行验证
    - 为修改的代码编写规范注释（设计意图、边界条件），禁止写入文档路径引用
    - 同步更新 plan.md checkbox（`- [ ]` → `- [x]`）
-   - dispatch reviewer subagent 审查 → 不通过则 fix → re-review
+   - 按照 `审查循环` 章节，dispatch reviewer subagent 审查 → 不通过则 fix → re-review
    - 标记 completed
 
    **【并行批次 — subagent 执行】**
-   - 为批次内每个任务并行 dispatch implementer subagent
-   - implementer prompt 必须包含：
-     · 任务上下文（1-2句，该任务在整个 change 中的位置）
+   - 为批次内每个任务**并行** dispatch implementer subagent
+   - 使用 `prompts/implementer.md` 模板构造 prompt，填入：
      · 该任务的 plan.md 原文（精确步骤 + 验收标准）
-     · 需要读取的文件路径（.ai/doc/ 相关章节 + 代码文件）
-     · 全局约束（plan.md 中的命名规范、技术栈限制等）
-     · 注释规范：每个函数/类/模块必写注释，解释设计意图和边界条件，
-       禁止写入文档路径引用
-     · 产出要求：代码变更 + 自验证（跑相关测试并报告结果）
+     · 任务上下文（1-2句，该任务在整个 change 中的位置）
+     · 相关的 .ai/doc/ 规范摘要
+     · plan.md 的全局约束（命名规范、技术栈限制等）
    - 禁止在 prompt 中粘贴：会话历史、之前任务的执行摘要、无关代码
-   - 所有 implementer 完成后：
-     · 逐个 dispatch reviewer subagent 审查
+   - **所有 implementer 完成后**，逐个 dispatch reviewer：
+     · 使用 `prompts/reviewer.md` 模板构造 prompt
      · 审查 spec 合规性 + 代码质量
      · 全部通过后，标记该批次所有任务 completed
      · 同步更新 plan.md checkbox
@@ -119,7 +116,7 @@ description: >
 
 ### Reviewer 审查
 
-dispatch reviewer subagent，审查两项：
+使用 `prompts/reviewer.md` 模板 dispatch reviewer subagent，审查两项：
 - **Spec 合规**：是否完整实现了 plan.md 中该任务的全部要求
 - **代码质量**：逻辑是否正确、边界条件处理、是否符合项目规范、有无 YAGNI
 
@@ -142,6 +139,7 @@ dispatch reviewer subagent，审查两项：
 
 ### Fixer Dispatch
 
+- 使用 `prompts/fixer.md` 模板 dispatch fixer subagent
 - 将所有 Critical/Important 问题一并交给 fixer（不逐条派发）
 - fixer 必须重跑相关测试并报告结果
 - 修复后重新 dispatch reviewer 审查
