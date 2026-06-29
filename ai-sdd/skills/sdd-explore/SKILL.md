@@ -73,7 +73,17 @@ description: >
 这些已纳入方案设计的考量范围。
 ```
 
-**步骤 3：影响范围映射**
+**步骤 3：置信度感知读取**
+
+在读取 `.ai/doc/` 构建项目理解时，同步解析文档中的 confidence 标记：
+
+- 对每份文档（尤其是 `mode: reverse` 的文档），统计 CONFIRMED / INFERRED / SPECULATIVE 三类标记的分布
+- 不同置信度的内容在后续使用中的处理方式：
+  - CONFIRMED → 可直接作为方案设计依据
+  - INFERRED → 可参考，但在方案中需注明"基于代码推断，需验证"
+  - SPECULATIVE → 不可直接依赖，在方案中作为风险标注，建议编码前人工确认
+
+**步骤 4：影响范围映射**
 
 基于 proposal 的"影响范围分析" + 架构依赖图：
 1. 识别直接受影响的模块
@@ -88,6 +98,11 @@ description: >
 - 涉及需求：[F-001, F-003]
 - 涉及设计文档：[auth.md, user.md]
 - 涉及技术债务：[TD-001]
+📊 置信度分布：
+- CONFIRMED 依赖：[auth.md §API契约, user.md §数据模型]
+- INFERRED 依赖：[payment.md §并发策略, F-003 §验收标准]
+- SPECULATIVE 依赖：[auth模块的幂等性设计]
+- 建议：在编码前人工确认 SPECULATIVE 项，方案中标注需验证的 INFERRED 假设
 ```
 
 ### 阶段 3：思维风暴

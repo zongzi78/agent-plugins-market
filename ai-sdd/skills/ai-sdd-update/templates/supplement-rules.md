@@ -1,8 +1,8 @@
 ---
 title: "AI-SDD 行为准则"
 type: supplement-rules
-version: 2.0
-last_updated: 2026-06-04
+version: 2.1
+last_updated: 2026-06-29
 updated_by: human+AI
 status: production
 description: >
@@ -178,6 +178,37 @@ description: >
 4. 发现文档与代码不符时：立即标记 → 报告人类 → 不要假装文档是对的
 
 > 注：以上为保鲜检查的核心原则。完整的保鲜检查操作步骤和报告格式见 ai-sdd-check 技能。
+
+## 3.5 置信度标注
+
+对于逆向生成的文档（front matter `source: reverse-engineering`），所有关键声明必须标注置信度：
+
+| 标记 | 含义 | 判定标准 |
+|------|------|----------|
+| **CONFIRMED** | 代码验证的事实 | 行为在代码中明确可见，有具体文件:行号引用 |
+| **INFERRED** | 从模式推断的结论 | 从框架默认值、命名约定、常见模式推断，但未直接看到配置或显式声明 |
+| **SPECULATIVE** | 低置信度推测 | 基于有限证据的猜测，需要人工验证 |
+
+使用规则：
+- 不得将 INFERRED 标注为 CONFIRMED —— 诚实是 AI 代理的基本义务
+- SPECULATIVE 必须附带"为什么不确认"的解释
+- 在方案设计阶段：CONFIRMED 可直接依赖，INFERRED 需注明验证步骤，SPECULATIVE 作为风险项处理
+
+## 3.6 文档模式与权威优先级
+
+AI-SDD 支持两种项目模式，同一套文档模板通过 front matter 元数据区分：
+
+| 模式 | front matter | 文档性质 | 权威优先级 |
+|------|-------------|----------|-----------|
+| **reverse** | `source: reverse-engineering` | 现状记录 + 推断分析 | **代码 > 文档** |
+| **greenfield** | `source: human-design` | 前瞻性规范 | **文档 > 代码** |
+
+冲突处理规则：
+- **逆向项目**：文档与代码不一致时，以代码为准，文档标记为过时（`status: deprecated`），并在保鲜检查中记录
+- **正向项目**：代码与文档不一致时，以文档为准，代码视为 bug，需修复代码使其符合文档
+- **混合项目**：以模块为单位——已通过人工确认升级为正向模式的模块走正向规则，其余走逆向规则
+
+注意：两种模式使用完全相同的文件结构和文件名（`01-需求.md`、`02-技术选型.md` 等），差异性仅通过 front matter 元数据承载。这意味着后续工作流技能（sdd-propose、sdd-explore、sdd-apply 等）无需根据模式做分支判断，只需要在读取文档时关注 confidence 标记。
 
 ---
 
