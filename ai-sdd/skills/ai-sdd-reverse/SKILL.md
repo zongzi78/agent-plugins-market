@@ -221,7 +221,7 @@ description: >
    - 逐一打开四份 doc 文件，检查：
      - 是否有 "待填写" 未替换的占位文本？（有 → 补全或改为"待确认+原因"）
      - front matter 是否完整？（title / type / version / last_updated / status / mode / source / confidence）
-     - `confidence` 字段是否与文档内容一致？（逐条核对：有任一推测 → `speculative`；全部已确认 → `confirmed`；否则 `inferred`）
+     - `confidence` 字段是否与文档内容一致？（**置信度一致性校验**：a. 遍历文档中所有可信度标记统计数量；b. 与 front matter `confidence` 比对；c. 不一致 → 修正并记录到 project-log）
      - 隐式约束是否至少覆盖了 4 个维度？
      - 每个关键声明是否标注了可信度？
    - 修复发现的问题
