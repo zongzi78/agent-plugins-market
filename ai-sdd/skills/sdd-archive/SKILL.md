@@ -48,6 +48,7 @@ description: >
 4. 将 change 文件夹重命名为 `YYYYMMDD-NNN-名称`，移入 `.ai/changes/archive/`
    - 示例：.ai/changes/archive/ 中已有 `20260611-003-xxx`，当天归档时序号为 `004`
 5. **碰撞检测**：如果目标路径已存在，追加 `-a`、`-b` 后缀
+	6. **清理同步备份**：如 change 目录下存在 `.sync-backup/`，删除。
 
 ### 步骤 5：更新 project-log.md
 
