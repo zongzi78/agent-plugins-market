@@ -1,6 +1,6 @@
 {
   "name": "ai-sdd",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件。提供完整的规范驱动开发工作流：项目初始化、逆向文档化、文档健康检查、文档重建、变更管理（propose → explore → apply → sync → archive）。",
   "author": {
     "name": "AI-SDD Team"

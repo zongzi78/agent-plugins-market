@@ -24,7 +24,7 @@ description: >
 
 ### 步骤 1：加载与审阅（批判性检查清单）
 
-1. 读取 plan.md、proposal.md、相关 .ai/doc/ 文件
+1. 读取 plan.md、proposal.md、相关 .ai/doc/ 文件（含 `04-问题与改进.md`，确认已知陷阱）
 2. 逐项检查：
    - [ ] plan.md 中每个文件路径存在，或有创建步骤
    - [ ] 每个任务有验证步骤 + 预期输出

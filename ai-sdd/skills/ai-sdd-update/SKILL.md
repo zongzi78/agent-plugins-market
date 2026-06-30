@@ -45,7 +45,7 @@ description: >
 1. 对比两个 skill 的 `templates/` 目录中对应文件是否一致：
    - `templates/supplement-rules.md`
    - `templates/project-log.md`
-   - `templates/doc/`（4 个 doc 模板）
+   - `templates/doc/`（5 个 doc 模板）
 2. 如不一致 → 警告用户"init 和 update 的模板不一致，update 的模板可能不是最新版"，列出不一致的文件
 3. 如一致 → 继续步骤 4
 

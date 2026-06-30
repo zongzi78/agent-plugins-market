@@ -55,8 +55,9 @@ description: >
 │   ├── 00-架构.md               ← 从本 skill 的 templates/doc/ 复制
 │   ├── 01-需求.md               ← 从本 skill 的 templates/doc/ 复制
 │   ├── 02-技术选型.md           ← 从本 skill 的 templates/doc/ 复制
-│   └── 03-详细设计/
-│       └── _模板.md             ← 从本 skill 的 templates/doc/03-详细设计/ 复制
+│   ├── 03-详细设计/
+│   │   └── _模板.md             ← 从本 skill 的 templates/doc/03-详细设计_模板.md 复制
+│   └── 04-问题与改进.md          ← 从本 skill 的 templates/doc/ 复制
 ├── changes/
 │   └── archive/                 ← 空目录
 └── ref/                         ← 空目录，用于存放参考资料
@@ -70,7 +71,7 @@ description: >
 .ai/ 目录已创建完成。包含：
   .ai/supplement-rules.md      — AI-SDD 行为准则（"宪法"，纯原则层）
   .ai/project-log.md           — 项目日志（活跃 Change + 变更时间线）
-  .ai/doc/                     — 规范文档目录（架构、需求、技术选型、详细设计）
+  .ai/doc/                     — 规范文档目录（架构、需求、技术选型、详细设计、问题与改进）
   .ai/changes/                 — 变更管理目录（活跃 change + 归档）
   .ai/ref/                     — 参考资料目录
 
