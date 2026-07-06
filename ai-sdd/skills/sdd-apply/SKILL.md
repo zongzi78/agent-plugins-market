@@ -108,6 +108,23 @@ description: >
 4. **铁律：没有验证证据不得声称完成**，若工作空间不具备运行测试的条件，应当 review 一遍 plan.md 和对应的修改，确认每个任务都已经执行
 5. 禁止使用"应该"、"可能"、"看起来"等模糊表述
 
+### 步骤 5：输出结构化变更摘要
+
+执行完成后，输出以下摘要（供 sdd-sync 和 sdd-archive 使用）：
+
+```
+## 变更摘要（apply 生成）
+
+改动的符号:
+  - 修改: ClassName::methodName() — 简要描述变更
+  - 新增: ClassName::newMethod()
+  - 删除: ClassName::removedMethod()
+  - 新增文件: path/to/new/file
+  - 删除文件: path/to/removed/file
+```
+
+此摘要追加到 plan.md 末尾。
+
 ---
 
 ## 审查循环
@@ -211,5 +228,5 @@ description: >
 - **拒绝路径**：
   - 无活跃 change → 提示运行 /sdd-propose
   - plan.md 为空 → 提示运行 /sdd-explore
-- **完成后引导**：`✅ 所有任务已完成（N/N），审查全部通过。接下来可通过 /sdd-sync 将设计变更同步到项目文档，然后通过 /sdd-archive 归档本次 change。`
+- **完成后引导**：`✅ 所有任务已完成（N/N），审查全部通过。接下来可通过 /sdd-sync 将设计变更同步到项目文档（sync 将分析 apply 生成的变更摘要），然后通过 /sdd-archive 归档本次 change。`
 - **暂停时提示**：`⏸ 实施暂停（M/N 任务完成）。问题解决后可再次运行 /sdd-apply 继续（支持断点续传）。`

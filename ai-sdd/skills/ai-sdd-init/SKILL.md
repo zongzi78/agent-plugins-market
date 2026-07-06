@@ -23,7 +23,7 @@ description: >
 在执行目录和模板创建之前，AI 通过综合上下文自主判断当前是正向（greenfield）还是逆向（reverse）模式。
 
 **正向模式（greenfield）的信号**：
-- 项目根目录仅有框架脚手架文件（如刚执行完 create-react-app / npx create-next-app 等）
+- 项目根目录仅有框架脚手架文件（如刚执行完 create-react-app / npx create-next-app /uv init 等）
 - 或：`src/` 下基本为空，无可识别的业务模块目录
 - 或：用户在对话中明确表达"新项目"、"从零开始"、"新建"、"初始化新项目"
 
@@ -37,9 +37,6 @@ description: >
 - 不要仅凭单个文件判断——综合多个信号
 - 如有歧义（例如项目同时有脚手架文件和部分业务代码），用 AskUserQuestion 询问用户：
   "我看到项目里同时有脚手架文件和一些业务代码。你想对这个现有项目做逆向文档化（reverse 模式），还是在这个基础上开始一个新的正向设计（greenfield 模式）？"
-- 判断结果写入生成的模板 front matter 的 `mode` 和 `source` 字段：
-  - reverse 模式：`mode: reverse`、`source: reverse-engineering`、`confidence: inferred`
-  - greenfield 模式：`mode: greenfield`、`source: human-design`、`confidence: confirmed`
 
 注：模式判断仅在 `.ai/` 目录不存在时（首次 init）有意义。如果 `.ai/` 已存在，前置检查会终止流程。
 
@@ -53,8 +50,8 @@ description: >
 ├── project-log.md               ← 从本 skill 的 templates/ 复制
 ├── doc/
 │   ├── 00-架构.md               ← 从本 skill 的 templates/doc/ 复制
-│   ├── 01-需求.md               ← 从本 skill 的 templates/doc/ 复制
-│   ├── 02-技术选型.md           ← 从本 skill 的 templates/doc/ 复制
+│   ├── 01-行为目录.md            ← 从本 skill 的 templates/doc/ 复制
+│   ├── 02-决策记录.md            ← 从本 skill 的 templates/doc/ 复制
 │   ├── 03-详细设计/
 │   │   └── _模板.md             ← 从本 skill 的 templates/doc/03-详细设计_模板.md 复制
 │   └── 04-问题与改进.md          ← 从本 skill 的 templates/doc/ 复制
@@ -71,7 +68,7 @@ description: >
 .ai/ 目录已创建完成。包含：
   .ai/supplement-rules.md      — AI-SDD 行为准则（"宪法"，纯原则层）
   .ai/project-log.md           — 项目日志（活跃 Change + 变更时间线）
-  .ai/doc/                     — 规范文档目录（架构、需求、技术选型、详细设计、问题与改进）
+  .ai/doc/                     — 规范文档目录（架构、行为目录、决策记录、详细设计、问题与改进）
   .ai/changes/                 — 变更管理目录（活跃 change + 归档）
   .ai/ref/                     — 参考资料目录
 
