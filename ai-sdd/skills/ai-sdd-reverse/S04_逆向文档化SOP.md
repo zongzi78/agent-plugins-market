@@ -1,8 +1,8 @@
 ---
 title: "旧工程逆向文档化 SOP"
 type: supplement
-version: 3.5
-last_updated: 2026-07-06
+version: 4.0
+last_updated: 2026-07-07
 updated_by: human+AI
 status: reviewed
 ---
