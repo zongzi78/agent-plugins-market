@@ -46,7 +46,7 @@ description: >
 
 ```
 .ai/
-├── supplement-rules.md          ← 从本 skill 的 templates/ 复制
+├── supplement-rules.md          ← 从本 skill 的 templates/ 复制（version 字段与当前 AI-SDD 版本同步）
 ├── project-log.md               ← 从本 skill 的 templates/ 复制
 ├── doc/
 │   ├── 00-架构.md               ← 从本 skill 的 templates/doc/ 复制

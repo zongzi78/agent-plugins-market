@@ -1,13 +1,16 @@
 ---
 title: "AI-SDD 行为准则"
 type: supplement-rules
-version: 2.2
-last_updated: 2026-07-06
+version: 1.6.12
+last_updated: 2026-07-08
 updated_by: human+AI
 status: production
 description: >
   本文件是 AI-SDD 方法论的行为准则（"宪法"层）。
   只保留原则和哲学，所有操作性内容融入对应 skill 内部。
+  version 字段与 AI-SDD skill 版本同步。
+  用于 update 检测升级需求、rebuild/check 了解文档生成时的版本。
+  每次发布新版本时必须同步更新此字段。
 ---
 
 # AI-SDD 行为准则
