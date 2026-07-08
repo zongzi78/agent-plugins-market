@@ -233,7 +233,7 @@ supplement-rules.md 已更新到 vX.Y（major bump）。
 
 ## 版本号规则
 
-- `major.minor.patch` 格式（如 1.6.12）
+- `major.minor.patch` 格式（如 1.6.13）
 - **major 变更**：breaking changes，AI 行为有重大调整
 - **minor 变更**：向后兼容的功能补充
 - **patch 变更**：bug 修复，不影响功能

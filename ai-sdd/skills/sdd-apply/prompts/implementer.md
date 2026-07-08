@@ -60,7 +60,7 @@ Subagent (general-purpose):
 
     ## 报告格式
 
-    回复时简洁汇报（不超过15行）：
+    回复时简洁汇报：先说结论（1-2行），再说关键细节。省略例行步骤。
     - **状态：** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
     - 修改了哪些文件（列表）
     - 测试结果（一行摘要，如 "5/5 通过"）

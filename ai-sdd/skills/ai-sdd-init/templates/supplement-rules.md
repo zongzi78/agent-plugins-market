@@ -1,7 +1,7 @@
 ---
 title: "AI-SDD 行为准则"
 type: supplement-rules
-version: 1.6.12
+version: 1.6.13
 last_updated: 2026-07-08
 updated_by: human+AI
 status: production
@@ -194,13 +194,8 @@ description: >
 
 ## 3.7 功能生命周期标记
 
-仅适用于 01-行为目录.md 的行为条目（B-XXX）。标记每个行为的存活状态：
-
-| 标记 | 含义 | 判定标准 |
-|------|------|----------|
-| **活跃**（active） | 行为正在被使用 | 有完整调用链路（路由->Handler->Service->DAO），且无废弃标记 |
-| **疑似废弃**（suspected-dead） | 可能已不再使用，不确定 | 路由注册但 Handler 是空壳；长期无变更记录；配置中关闭 |
-| **已废弃**（deprecated） | 经人类确认已不再使用 | 人类明确标记为废弃；或代码中有明确的 @Deprecated 标注 |
+仅适用于 01-行为目录.md 的行为条目（B-XXX）。
+→ 行为状态的完整定义（标记/含义/判定标准）见 01-行为目录.md 模板「状态说明」章节（唯一权威源）。
 
 ## 3.8 文档的 status 状态机
 
