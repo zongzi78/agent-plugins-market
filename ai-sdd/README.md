@@ -14,8 +14,8 @@ AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件。
 | ai-sdd-reverse | `/ai-sdd-reverse` | 遗留项目逆向文档化 |
 | ai-sdd-check | `/ai-sdd-check` | 文档健康检查（漂移检测） |
 | ai-sdd-rebuild | `/ai-sdd-rebuild` | 文档严重漂移时重建 |
-| ai-sdd-diagnose | `/ai-sdd-diagnose` | 代码问题诊断（可独立运行） |
-| ai-sdd-update | `/ai-sdd-update` | supplement-rules.md 版本更新 |
+| ai-sdd-diagnose | `/ai-sdd-diagnose` | 代码问题诊断 — 七范畴扫描，04-问题与改进.md 唯一写入者 |
+| ai-sdd-update | `/ai-sdd-update` | AI-SDD 版本升级（轻量：规则更新 / 重量：doc 迁移） |
 
 ### 工作流技能（高频）
 
@@ -23,7 +23,7 @@ AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件。
 |------|---------|------|
 | sdd-propose | `/sdd-propose` | 创建 change（需求入口） |
 | sdd-explore | `/sdd-explore` | 深度探索 + 制定实施方案 |
-| sdd-apply | `/sdd-apply` | 按 plan 执行编码 |
+| sdd-apply | `/sdd-apply` | 智能执行引擎：自动编排串行/并行执行 + 审查循环 |
 | sdd-sync | `/sdd-sync` | 设计变更同步回 `.ai/doc/` |
 | sdd-archive | `/sdd-archive` | 归档完成的 change |
 

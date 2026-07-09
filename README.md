@@ -31,7 +31,7 @@ codex plugin marketplace add zongzi78/agent-plugins-market
 
 1. 在仓库根目录下创建新的 plugin 文件夹
 2. 添加 `.claude-plugin/plugin.json` 和/或 `.codex-plugin/plugin.json`
-3. 在根目录的两个 marketplace.json 中添加对应条目
+3. 在 `.claude-plugin/marketplace.json` 和 `.agents/plugins/marketplace.json` 中添加对应条目
 4. 提交推送，用户 `/plugin marketplace update` 即可获取
 
 ## 许可证

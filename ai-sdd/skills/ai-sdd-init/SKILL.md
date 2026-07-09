@@ -103,7 +103,8 @@ AI-SDD v3 工作流概览：
   /ai-sdd-reverse   — 遗留项目逆向文档化
   /ai-sdd-check     — 文档健康检查（漂移检测）
   /ai-sdd-rebuild   — 文档严重漂移时重建
-  /ai-sdd-update    — supplement-rules.md 版本更新
+  /ai-sdd-diagnose  — 代码问题诊断（可独立运行或被reverse调用）
+  /ai-sdd-update    — AI-SDD 版本升级
 
 工作流技能（高频使用）：
   /sdd-propose   — 创建 change（需求入口）
