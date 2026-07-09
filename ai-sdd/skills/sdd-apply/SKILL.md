@@ -24,6 +24,14 @@ description: >
 
 ### 步骤 1：加载与审阅（批判性检查清单）
 
+0. 读取 `.ai/supplement-rules.md`（如存在）：
+   - §一（权限边界）→ 确认 implementer 决策范围
+   - §二（强制暂停规则）→ 实现中遇到歧义时对照
+   - §四（文档操作红线）→ reviewer 检查依据
+   - 项目特定约束节 → 分类处理：
+     - 提取所有 **ENV 约束**（启用=是）→ 注入 implementer 的 system prompt：
+       "环境约束（来自 .ai/supplement-rules.md，必须遵守）：..."
+     - 提取所有 **CI/AC/DP 约束**（启用=是）→ 传递给 reviewer（Part 3）
 1. 读取 plan.md、proposal.md、相关 .ai/doc/ 文件（含 `04-问题与改进.md`，确认已知陷阱）
 2. 逐项检查：
    - [ ] plan.md 中每个文件路径存在，或有创建步骤

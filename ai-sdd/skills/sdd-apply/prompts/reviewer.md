@@ -61,6 +61,24 @@ Subagent (general-purpose):
     - 是否有有意义的注释（解释设计意图、边界条件）？
     - 是否存在文档路径引用（.ai/doc/、.ai/changes/）？如有，这是违规。
 
+    ## Part 3：系统约束检查
+
+    以下约束来自 `.ai/supplement-rules.md` 项目特定约束节（仅 `启用=是` 的条目），逐条检查本次变更。
+
+    对每条约束：
+    - **CI 约束**（grep 可自动检测）→ 直接执行 grep
+      - 通过 → ✅
+      - 违规且阻塞=是 → ❌ Critical，直接拒绝。**不计入审查循环次数**
+      - 违规且阻塞=否 → ⚠️ Important，标记供人类 override
+    - **AC/DP 约束**（需上下文判断）→ 读代码，标记可疑点
+      - 通过 → ✅
+      - 可疑 → ⚠️ Important，标记需人类确认
+      - 明显违规且阻塞=是 → ❌ Critical
+    - **ENV 约束** → 已通过 implementer system prompt 在实现过程中预防；
+      如发现工具调用违反 → ❌ Critical
+
+    **审查顺序**：Part 1 (Spec 合规) → Part 2 (代码质量) → Part 3 (约束检查)
+
     ## 标定
 
     按实际严重程度分类：

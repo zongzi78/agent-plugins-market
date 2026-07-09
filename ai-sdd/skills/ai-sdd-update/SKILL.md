@@ -81,12 +81,14 @@ description: >
 1. 展示 supplement-rules.md 的变更摘要（新增/修改/删除的章节和规则）
 2. 如果 `.ai/project-rules.md` 存在 → 提示检查是否需要同步调整
 3. 人类确认后：
-   - 用 `ai-sdd-init/templates/supplement-rules.md` 替换项目中的 `.ai/supplement-rules.md`
+   - 用 `ai-sdd-init/templates/supplement-rules.md` 中 `<!-- SUPPLEMENT-RULES-CUT -->` **标记之上**的方法论规则层替换项目 `.ai/supplement-rules.md` 的对应部分
+   - **保留**标记之下的项目特定约束节（含所有 AC/DP/CI/ENV 约束条目）不变
    - 保留项目中 YAML front matter 中的项目特定字段（如有）
 4. 输出升级摘要，终止
 
 ```
-supplement-rules.md 已更新到 vX.Y（minor bump）。
+supplement-rules.md 方法论规则层已更新到 vX.Y（minor bump）。
+项目特定约束节未被修改。
 
 提醒：
   - .ai/doc/ 未被修改（本次升级不涉及文档体系变更）
@@ -233,7 +235,7 @@ supplement-rules.md 已更新到 vX.Y（major bump）。
 
 ## 版本号规则
 
-- `major.minor.patch` 格式（如 1.7.0）
+- `major.minor.patch` 格式（如 1.7.3）
 - **major 变更**：breaking changes，AI 行为有重大调整
 - **minor 变更**：向后兼容的功能补充
 - **patch 变更**：bug 修复，不影响功能
