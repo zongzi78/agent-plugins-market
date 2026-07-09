@@ -16,7 +16,7 @@ description: >
 
 1. 无活跃 change → 拒绝，提示"请先通过 /sdd-propose 创建 change"
 2. plan.md 为空（仅占位 front matter）→ 拒绝，提示"请先通过 /sdd-explore 制定实施方案"
-3. 有多个活跃 change → 让用户选择
+3. 有多个活跃 change → 用 AskUserQuestion 让用户选择
 4. plan.md 有已完成任务（`- [x]`）→ 提示"检测到部分任务已完成（X/N），将从第一个未完成任务继续"（断点续传）
 5. 当检测到 git 仓库且当前在 main/master 分支时 → 简短提醒"⚠️ 当前在 main 分支，建议确认是否需要创建功能分支"，不阻塞执行
 

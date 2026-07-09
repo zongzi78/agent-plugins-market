@@ -15,7 +15,7 @@ description: >
 
 1. `.ai/` 不存在 → 提示"请先执行 `/ai-sdd-init`"，终止
 2. 无活跃 change → 拒绝，提示"请先通过 `/sdd-propose` 创建一个 change"，终止
-3. 多个活跃 change → 让用户选择目标 change
+3. 多个活跃 change → 用 AskUserQuestion 让用户选择目标 change
 4. plan.md 非空（已有内容）→ 警告"plan.md 已有内容"，AskUserQuestion：覆盖 / 从当前状态继续 / 取消
 
 ## 执行流程

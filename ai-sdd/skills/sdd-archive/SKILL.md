@@ -19,7 +19,7 @@ description: >
 
 ### 步骤 1：选择 change
 
-如有多个活跃 change，询问用户选择；**绝不自动选择**。
+如有多个活跃 change，用 AskUserQuestion 询问用户选择；**绝不自动选择**。
 
 ### 步骤 2：检查任务完成情况
 

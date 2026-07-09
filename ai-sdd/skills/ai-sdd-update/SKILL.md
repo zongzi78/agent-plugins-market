@@ -104,7 +104,7 @@ supplement-rules.md 已更新到 vX.Y（minor bump）。
 
 2. 人类确认后，先用最新模板替换 `.ai/supplement-rules.md`
 
-3. **提示 doc 迁移**：
+3. **提示 doc 迁移**（用 AskUserQuestion 询问）：
 
 ```
 检测到文档体系结构性变更。建议运行文档迁移以适配新版本。

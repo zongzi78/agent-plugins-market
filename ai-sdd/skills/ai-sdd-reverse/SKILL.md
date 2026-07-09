@@ -71,7 +71,7 @@ rebuild（文档腐烂修复）或 update（版本升级）调用 reverse 时，
   我会将其作为参考材料。
 ```
 
-- 等待人类选择后，按选择执行
+- 用 AskUserQuestion 询问人类，按选择执行
 
 ---
 
