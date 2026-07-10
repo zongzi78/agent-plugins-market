@@ -35,6 +35,10 @@ description: >
 2. 如有未同步项：警告并列出，AskUserQuestion（选项：先同步再归档 / 不同步直接归档 / 取消）
 3. 如选择先同步：提示运行 `/sdd-sync`
 4. 如计划中有 `## 04 更新计划`：检查条目是否已在 sync 阶段处理，未处理则提示
+5. **回归诊断建议**（可选，推荐执行）：
+   - 建议在归档前运行 `/ai-sdd-diagnose --layer=D --depth=L1` 对本次 change 涉及的代码做快速回归检查
+   - 如 diagnose 发现新问题 → 评估是否需要先修复后归档，或记录到 project-log.md 供后续处理
+   - 如跳过此步 → 归档继续，但需在归档摘要中注明"未执行回归诊断"
 
 ### 步骤 4：执行归档（含日期重编号）
 
@@ -49,7 +53,7 @@ description: >
 4. 将 change 文件夹重命名为 `YYYYMMDD-NNN-名称`，移入 `.ai/changes/archive/`
    - 示例：.ai/changes/archive/ 中已有 `20260611-003-xxx`，当天归档时序号为 `004`
 5. **碰撞检测**：如果目标路径已存在，追加 `-a`、`-b` 后缀
-	6. **清理同步备份**：如 change 目录下存在 `.sync-backup/`，删除。
+6. **清理同步备份**：如 change 目录下存在 `.sync-backup/`，删除。
 
 ### 步骤 5：更新 project-log.md
 
@@ -85,6 +89,6 @@ description: >
 
 ## 联动设计
 
-- **拒绝路径**：无活跃 change → 提示"没有活跃的 change 需要归档"
+- **拒绝路径**：见「前置检查」
 - **归档前提示（如有未同步变更）**：`📋 该 change 有文档变更尚未同步。建议先运行 /sdd-sync 更新项目文档。`
 - **归档后提示**：`✅ Change 已归档：.ai/changes/archive/YYYYMMDD-NNN-名称`

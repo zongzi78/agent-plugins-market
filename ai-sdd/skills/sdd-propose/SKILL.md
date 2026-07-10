@@ -35,7 +35,7 @@ description: >
 
 1. 创建文件夹 `.ai/changes/NNN-名称/`（**不含日期前缀**，日期前缀仅归档时使用）
    - 示例：`.ai/changes/001-用户认证/`、`.ai/changes/003-fix-login-bug/`
-2. 以更专业、更精准的角度重写用户需求，生成 `proposal.md`（模板见下方）
+2. 以更专业、更精准的角度重写用户需求，生成 `proposal.md` — **Read [templates/proposal-template.md](templates/proposal-template.md) now and use it as the structure template.**
 3. 创建空的 `plan.md`（占位，仅含 front matter，后续由 `/sdd-explore` 填充）
 
 ### 步骤 4：更新 project-log.md
@@ -50,49 +50,6 @@ description: >
    plan.md     — 待填充（占位）
 
 接下来可通过 /sdd-explore 深度探索代码并制定实施方案。
-```
-
----
-
-## proposal.md 模板
-
-```markdown
----
-title: "提案：[功能名称]"
-type: proposal
-created: YYYY-MM-DD
-status: draft
----
-
-# [功能名称]
-
-## 背景与动机
-[为什么要做这个改动]
-
-[如有] 用户补充的实现思路、技术约束或关键上下文，由用户提供、经 AI 整理后保留于此。内容的准确性和可行性由 /sdd-explore 验证，本阶段仅记录不做评估。
-
-## 目标
-[要达成什么效果]
-
-## 范围
-### 包含
-- [明确包含的内容]
-
-### 不包含
-- [明确排除的内容]
-
-## 影响范围分析
-
-​```mermaid
-graph LR
-    A["本次改动"] --> B["模块X"]
-    A --> C["模块Y"]
-    B --> D["依赖Z"]
-​```
-
-## 验收标准
-- [ ] [可验证的验收条件1]
-- [ ] [可验证的验收条件2]
 ```
 
 ---
@@ -119,5 +76,5 @@ graph LR
 
 ## 联动设计
 
-- **拒绝路径**：`.ai/` 不存在 → 提示运行 `/ai-sdd-init`
+- **拒绝路径**：见「前置检查」
 - **完成后引导**：`✅ Change 已创建：.ai/changes/NNN-xxx/。接下来可通过 /sdd-explore 深度探索代码并制定实施方案。`

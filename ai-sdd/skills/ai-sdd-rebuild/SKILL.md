@@ -10,12 +10,13 @@ description: >
 
 ## 定位
 
-⚠️ **本 skill 依赖 ai-sdd-reverse。** 执行前确保 reverse skill 已加载——rebuild 通过调用 reverse 的 ref 模式来执行重建，reverse 的 SOP 和质量规则是本 skill 的行为基础。
+⚠️ **依赖 ai-sdd-reverse。** 执行前确保 reverse skill 已加载——rebuild 通过调用 reverse 的 ref 模式来执行重建。
 
-当 `.ai/doc/` 规范文档与代码脱节（check 检测到漂移）时，本 skill 对腐烂的文档进行修复。
-**rebuild 不是独立引擎**——它通过精心设计的提示词，调用 reverse 的 ref 模式来完成重建工作。
+执行文档腐烂修复：
 
-**核心逻辑**：以腐烂的 AI-SDD 文档为 ref（参考材料），以代码为真相源，执行"重组 + 修正 + 补全 + 保留"四步修复。
+1. 以腐烂的 AI-SDD 文档为 ref（参考材料），以代码为真相源
+2. 通过精心设计的提示词，调用 reverse 的 ref 模式执行"重组 + 修正 + 补全 + 保留"四步修复
+3. rebuild 不是独立引擎——所有修复通过 reverse 完成
 
 ## 前置检查
 

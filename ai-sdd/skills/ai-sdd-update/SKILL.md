@@ -10,23 +10,18 @@ description: >
 
 ## 定位
 
-⚠️ **本 skill 依赖 ai-sdd-reverse（major bump 时）。** 重量升级时通过调用 reverse 的 ref 模式来执行文档迁移。minor bump 不依赖 reverse。
+⚠️ **依赖 ai-sdd-reverse（major bump 时）。** 重量升级时通过调用 reverse 的 ref 模式来执行文档迁移。
 
-当 AI-SDD 方法论版本升级时，更新项目中的 AI-SDD 体系文件。
+执行 AI-SDD 版本升级：
 
 **两级操作**：
-- **minor bump**（仅 constitution 层变更）→ 轻量：替换 `supplement-rules.md`，秒级完成
-- **major bump**（doc 模板也变了：文件名/角色/结构）→ 重量：替换 constitution + 调用 reverse ref 模式迁移 doc 文件
-
-**update 不是独立引擎**——重量升级时，它通过精心设计的提示词，调用 reverse 的 ref 模式来完成文档迁移。
+- **minor bump**（仅 constitution 层变更）→ 替换 `supplement-rules.md`，秒级完成
+- **major bump**（doc 模板也变了）→ 替换 constitution + 调用 reverse ref 模式迁移 doc 文件
 
 **精确边界**：
-- ✅ 更新 `.ai/supplement-rules.md`（宪法层）
-- ✅ major bump 时：调用 reverse ref 模式迁移 `.ai/doc/`（文档层）
-- ✅ 提示检查 `.ai/project-rules.md` 是否需要同步调整
-- ❌ 不修改 `.ai/project-log.md`（项目私有数据）
-- ❌ 不修改 `.ai/project-rules.md`（项目私有规则）
-- ❌ 不修改 skill 文件本身（体系层面的事）
+- ✅ 更新 `.ai/supplement-rules.md`
+- ✅ major bump 时：调用 reverse ref 模式迁移 `.ai/doc/`
+- ❌ 不修改 `.ai/project-log.md`、`.ai/project-rules.md`、skill 文件本身
 
 ## 前置检查
 
@@ -147,7 +142,7 @@ supplement-rules.md 已更新到 vX.Y（major bump）。
 
 ## 版本号规则
 
-- `major.minor.patch` 格式（如 1.7.4）
+- `major.minor.patch` 格式（如 1.7.5）
 - **major 变更**：breaking changes，AI 行为有重大调整
 - **minor 变更**：向后兼容的功能补充
 - **patch 变更**：bug 修复，不影响功能
@@ -162,6 +157,6 @@ supplement-rules.md 已更新到 vX.Y（major bump）。
 
 ## 注意事项
 
-- 本 skill 负责触发版本升级流程，模板的权威来源是 `ai-sdd-init/templates/`
+- 负责触发版本升级流程，模板的权威来源是 `ai-sdd-init/templates/`
 - skill 文件的更新是 AI-SDD 体系层面的事，需要人工维护
 - 版本号与 AI-SDD skill 版本同步，记录在 `supplement-rules.md` 的 `version` 字段
