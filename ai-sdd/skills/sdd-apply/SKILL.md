@@ -12,6 +12,12 @@ description: >
 
 智能执行引擎：分析 plan.md 任务依赖关系，自动判断哪些任务可以并行执行，编排执行顺序，调度 subagent 执行独立任务，并通过审查循环保障每个任务的交付质量。
 
+## ⚠️ 铁律
+
+**本 skill 只修改项目代码，绝不修改 .ai/doc/ 下的任何文件。**
+文档变更是 /sdd-sync 的专属职责。apply 阶段加载 .ai/doc/ 文件仅用于上下文参考。
+如实现过程中发现文档需要变更，记录到 plan.md 的「文档变更」表中，由 sync 阶段处理。
+
 ## 前置检查（Hard Gate）
 
 1. 无活跃 change → 拒绝，提示"请先通过 /sdd-propose 创建 change"
@@ -40,11 +46,12 @@ description: >
    - [ ] 任务顺序尊重数据依赖
    - [ ] plan.md 覆盖了 proposal.md 的全部范围
    - [ ] `## 文档变更` 章节的每个目标文件路径正确
+   - [ ] **文档操作红线**：确认已加载的 .ai/doc/ 文件仅用于上下文参考。任何情况下不修改这些文件——文档变更是 /sdd-sync 的专属职责
 3. 冲突预扫描：
    - [ ] 检查是否有任务操作同一文件的同一区域（冲突风险）
    - [ ] 检查是否有任务间的隐式依赖未被 plan.md 标注
    - [ ] 检查 plan.md 的全局约束是否有与任务描述矛盾之处
-   - 发现问题 → 一次性列出，向人类确认，不逐条打断
+   - 发现问题 → 一次性列出，向人类确认。**不可自行裁决或假设"应该是这样"**
 4. 如有疑虑：向人类提出，不猜测
 
 ### 步骤 2：并行度分析与编排
@@ -93,6 +100,7 @@ description: >
    - 标记 completed
 
    **【并行批次 — subagent 执行】**
+   - **Read [prompts/implementer.md](prompts/implementer.md) now** and use it as the template for constructing each implementer's prompt.
    - 为批次内每个任务**并行** dispatch implementer subagent
    - 使用 `prompts/implementer.md` 模板构造 prompt，填入：
      · 该任务的 plan.md 原文（精确步骤 + 验收标准）
@@ -141,7 +149,9 @@ description: >
 
 ### Reviewer 审查
 
-使用 `prompts/reviewer.md` 模板 dispatch reviewer subagent，审查两项：
+**Read [prompts/reviewer.md](prompts/reviewer.md) now** and use it as the template for constructing each reviewer's prompt.
+
+使用该模板 dispatch reviewer subagent，审查两项：
 - **Spec 合规**：是否完整实现了 plan.md 中该任务的全部要求
 - **代码质量**：逻辑是否正确、边界条件处理、是否符合项目规范、有无 YAGNI
 
@@ -164,7 +174,8 @@ description: >
 
 ### Fixer Dispatch
 
-- 使用 `prompts/fixer.md` 模板 dispatch fixer subagent
+**Read [prompts/fixer.md](prompts/fixer.md) now** and use it as the template for constructing each fixer's prompt.
+
 - 将所有 Critical/Important 问题一并交给 fixer（不逐条派发）
 - fixer 必须重跑相关测试并报告结果
 - 修复后重新 dispatch reviewer 审查
@@ -176,6 +187,11 @@ description: >
 - 配置文件单行修改
 - 变更 < 10 行且 plan.md 描述精确到代码级别
 - 连续 3 个同类型任务审查均一次通过 → 后续同类型可降级为抽查
+
+**硬性限制**：
+- **累计阈值**：同一 change 内所有 <10 行的子任务累计变更行数 ≥50 行时，必须执行至少一次完整审查（不能全部跳过）
+- **同文件限制**：同一文件的变更累计 ≥3 次（即使每次都 <10 行），后续该文件的变更不能跳过审查
+- **逻辑任务判定**：如果 plan.md 中多个 <10 行的任务属于同一逻辑功能（如"修改 3 处配置"），视为一个逻辑任务，累计行数判定
 
 ---
 
@@ -214,9 +230,16 @@ description: >
 - **最小旁白**：任务间不要输出进度摘要或反思，TodoWrite 和 plan.md checkbox 已经记录了状态
 - **冲突即停**：发现 plan 描述与代码现实矛盾时，不自行裁决，立即报告
 - **禁止并行操作同一文件**：即使编排方案将两个任务标记为并行，如果它们操作同一文件的不同区域，降级为串行执行
-- **零文档修改**：apply 阶段绝不修改 .ai/doc/ 下的任何文件。文档变更是 /sdd-sync 的专属职责，apply 只修改项目代码。如实现过程中发现文档需要变更，记录在 plan.md 的「文档变更」表中（如未记录），由 sync 阶段处理，不在 apply 阶段自行修改
+- **绝不碰 .ai/doc/**：即使发现文档中有明显的笔误或过时信息，也不在 apply 阶段修改。记录到 plan.md → 由 sync 处理。apply 修改文档 = 数据不一致
 
 ---
+
+## 💡 常见陷阱（Gotchas）
+
+- **并行任务共享隐式约定**：implementer 只看到自己的任务 prompt，看不到其他并行任务的上下文。如果两个任务共享隐式约定（如相同的工具函数签名），implementer 可能做出冲突的决策。编排时优先将可能共享约定的任务串行化。
+- **跳过审查的累计效应**：3 个 <10 行的变更合并后可能引入复杂的交互 bug。如果同模块连续有多个跳过审查的任务，应降级为抽查模式而非继续跳过。
+- **subagent prompt 膨胀**：容易因为想给 implementer "更多上下文"而粘贴会话历史——这会导致 token 爆炸。严格遵循模板：只传任务原文 + 1-2 句上下文 + 全局约束。
+- **变更摘要遗漏**：implementer 可能在实现 task A 时"顺便修了" task B 范围的小问题。务必在步骤 5 变更摘要中交叉检查 git diff，确保遗漏的变更被记录。
 
 ## 暂停条件（8 种）
 
