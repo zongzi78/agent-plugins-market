@@ -80,8 +80,7 @@ description: >
 │   └── archive/                 ← 空目录
 └── ref/
     ├── sources.md               ← 外部依赖清单（从本 skill 的 templates/ 复制）
-    ├── cache/                   ← 本地缓存（可选，应加入 .gitignore）
-    └── notes/                   ← 人工参考笔记（空目录）
+    └── cache/                   ← 本地缓存（可选，应加入 .gitignore）
 ```
 
 ### 步骤 2：输出工具集成指引
@@ -94,7 +93,7 @@ description: >
   .ai/project-log.md           — 项目日志（活跃 Change + 变更时间线）
   .ai/doc/                     — 规范文档目录（架构、行为目录、决策记录、详细设计、问题与改进）
   .ai/changes/                 — 变更管理目录（活跃 change + 归档）
-  .ai/ref/                     — 外部依赖清单（sources.md + cache/ + notes/）
+  .ai/ref/                     — 外部依赖清单（sources.md + cache/）
 
 请在你的 AI 工具配置中添加以下指令：
 
@@ -145,4 +144,4 @@ AI-SDD v3 工作流概览：
 - **初始化后 .ai/doc/ 下的模板文件只有 front matter 结构**：内容全部需要由 reverse 填充。不要试图在 init 阶段就填写内容。
 - **自动模式判断（greenfield vs reverse）的信号列表是启发式的**：如果项目同时在 git 中有超过 100 次提交且目录结构简单，可能误判。不确定时询问人类。
 - **模板中的「📋 本文档角色」区块是各 skill 判断写入范围的依据**：如果模板被修改，所有下游 skill 的行为都会受影响。修改模板前确认对整套 skill 的影响。
-- **`ref/` 三层结构中仅 `sources.md` 从模板生成**：`cache/` 和 `notes/` 为空目录，由人类按需使用。其他 skill 不会自动维护 ref/ 下的内容——这完全是人类管理的空间。
+- **`ref/` 结构中仅 `sources.md` 从模板生成**：`cache/` 为空目录，由人类按需使用。其他 skill 不会自动维护 ref/ 下的内容——这完全是人类管理的空间。
