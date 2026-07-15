@@ -159,7 +159,8 @@ description: >
 ### 阶段 5：更新状态
 
 1. 更新 proposal.md 的 status 为 `planned`
-2. 更新 project-log.md
+2. 更新 plan.md 的 status 为 `planned`
+3. 更新 project-log.md
 
 ---
 

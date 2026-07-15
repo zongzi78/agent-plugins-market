@@ -59,9 +59,7 @@ description: >
 | 状态 | 含义 | 设置时机 |
 |------|------|----------|
 | `draft` | 刚创建，待探索 | sdd-propose 创建时 |
-| `exploring` | 探索中 | sdd-explore 开始时 |
 | `planned` | 方案已确定 | sdd-explore 完成 plan.md 后 |
-| `implementing` | 编码中 | sdd-apply 开始时 |
 | `completed` | 已完成 | sdd-archive 归档时 |
 
 ---

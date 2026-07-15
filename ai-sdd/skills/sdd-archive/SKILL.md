@@ -42,9 +42,9 @@ description: >
 
 ### 步骤 4：执行归档（含日期重编号）
 
-1. **更新 proposal.md 的 status 字段**：
-   - 正常归档：改为 `completed`
-   - 放弃时：改为 `abandoned`
+1. **更新 proposal.md 和 plan.md 的 status 字段**：
+   - 正常归档：proposal.md 和 plan.md 均改为 `completed`
+   - 放弃时：proposal.md 和 plan.md 均改为 `abandoned`
 2. 创建 `.ai/changes/archive/` 目录（如不存在）
 3. **确定归档序号**：
    - 获取当天日期 `YYYYMMDD`
@@ -73,7 +73,7 @@ description: >
 ## 放弃 change 功能
 
 用户选择"放弃"时：
-- proposal.md status 改为 `abandoned`
+- proposal.md 和 plan.md 的 status 均改为 `abandoned`
 - 重命名为 `YYYYMMDD-NNN-名称-abandoned`，移入 `.ai/changes/archive/`（序号规则同上）
 - project-log.md 记录为"已放弃"
 
