@@ -11,6 +11,43 @@ description: >
 
 轻量级需求入口。接收用户的初步需求说明，产出专业的 proposal.md。不深入探索代码。
 
+## ⛔ 读写边界（Hard Boundary）
+
+### 允许读取（白名单）
+- `.ai/doc/**/*.md` — 已有文档
+- `.ai/project-log.md` — 项目历史
+- `.ai/supplement-rules.md` — 行为准则 + 项目约束
+- `.ai/changes/` — 仅碰撞检测（扫描目录名）
+- `templates/proposal-template.md` — 本 skill 的模板
+
+### 禁止读取
+- `src/**` 下的所有源代码文件
+- 项目配置文件（`package.json`、`tsconfig.json` 等）
+- 测试文件
+- 构建产物
+
+### 允许写入（白名单）
+- `.ai/changes/NNN-名称/proposal.md`
+- `.ai/changes/NNN-名称/plan.md`（仅创建空占位）
+- `.ai/project-log.md`（仅更新「活跃 Change」区段）
+
+### 严禁写入
+- `src/**` 下的所有源代码文件
+- `.ai/doc/**` 下的所有文档
+- 测试文件
+
+⛔ 违反任何一条边界 = 你在做 sdd-explore 或 sdd-apply 的工作，不是 sdd-propose。
+
+## 🚫 常见越界模式（Anti-Patterns）
+
+如果以下想法出现在你的推理中，**立即停止**：
+
+| 越界想法 | 正确做法 |
+|----------|----------|
+| "我需要先看看代码才能写提案" | 不需要。proposal 记录的是用户意图，不是技术方案。信息不足就在「待确认」中标注。 |
+| "让我读一下 src/ 了解模块结构" | 这是 sdd-explore 的工作。如果你不知道模块叫什么，问用户或用通用描述。 |
+| "这里有个简单的修复，顺手改一下" | 绝对不行。你只负责提案。编码是 sdd-apply 的工作。 |
+
 ## 前置检查
 
 1. `.ai/` 不存在 → 提示"请先执行 `/ai-sdd-init` 初始化项目环境"，终止
@@ -25,6 +62,8 @@ description: >
 - 为什么要做？
 - 预期影响哪些模块？
 
+如果用户描述不足以确定范围，直接在 proposal 的「待确认」中标注，不要自己去探索代码。
+
 ### 步骤 2：派生名称 + 检测碰撞
 
 1. 从描述中派生名称。**优先使用中文**；不方便中文描述时可用英文，专有名词用英文。不确定时 AskUserQuestion 确认
@@ -32,6 +71,8 @@ description: >
 3. **碰撞检测**：扫描 `.ai/changes/` 中的活跃 change，名称冲突则追加 `-2`、`-3` 后缀
 
 ### 步骤 3：创建 change 目录和文件
+
+⏸ **暂停确认**：你要写入的是 `proposal.md`（不是源码文件）。如果 `.ai/doc/` 信息不足以填写某个字段，在 proposal 中标注「待 sdd-explore 验证」，不要自己去探索代码填补空白。
 
 1. 创建文件夹 `.ai/changes/NNN-名称/`（**不含日期前缀**，日期前缀仅归档时使用）
    - 示例：`.ai/changes/001-用户认证/`、`.ai/changes/003-fix-login-bug/`
