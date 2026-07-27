@@ -17,13 +17,14 @@ description: >
 
 1. `.ai/project-log.md` — 项目状态和变更时间线
 2. **本文件（.ai/supplement-rules.md）** — 行为准则和约束
-3. `.ai/doc/00-架构.md` — 系统架构
-4. `.ai/doc/01-行为目录.md` — 可观察行为清单（B-XXX）
-5. `.ai/doc/02-决策记录.md` — 技术栈事实与决策理由（D-XXX）
-6. `.ai/doc/03-详细设计/<模块名>.md` — 各模块详细设计
-7. `.ai/doc/04-问题与改进.md` — 当前有效问题汇总
-8. 活跃 change 的 plan.md — 当前任务的实施方案
-9. `.ai/project-rules.md`（如存在）— 项目私有规则
+3. `.ai/ref/sources.md` — 外部依赖清单（DOC-XXX/LIB-XXX/UI-XXX），只读索引，不自动访问链接
+4. `.ai/doc/00-架构.md` — 系统架构
+5. `.ai/doc/01-行为目录.md` — 可观察行为清单（B-XXX）
+6. `.ai/doc/02-决策记录.md` — 技术栈事实与决策理由（D-XXX）
+7. `.ai/doc/03-详细设计/<模块名>.md` — 各模块详细设计
+8. `.ai/doc/04-问题与改进.md` — 当前有效问题汇总
+9. 活跃 change 的 plan.md — 当前任务的实施方案
+10. `.ai/project-rules.md`（如存在）— 项目私有规则
 
 ---
 
