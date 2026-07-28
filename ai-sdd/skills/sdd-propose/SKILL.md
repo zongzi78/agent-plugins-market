@@ -97,11 +97,15 @@ description: >
 
 ## Change Status 定义
 
+每份 status 字段在 proposal.md 和 plan.md 中始终保持一致。
+
 | 状态 | 含义 | 设置时机 |
 |------|------|----------|
-| `draft` | 刚创建，待探索 | sdd-propose 创建时 |
-| `planned` | 方案已确定 | sdd-explore 完成 plan.md 后 |
-| `completed` | 已完成 | sdd-archive 归档时 |
+| `draft` | 刚创建，待探索 | sdd-propose 创建时写入两份文件 |
+| `planned` | 方案已产出，待人类审阅 | sdd-explore 开始时写入两份文件 |
+| `approved` | 人类已确认方案，授权编码 | sdd-explore 收到人类口头确认后写入两份文件 |
+| `completed` | 已完成 | sdd-archive 归档时写入两份文件 |
+| `abandoned` | 已放弃 | sdd-archive 放弃时写入两份文件 |
 
 ---
 

@@ -4,6 +4,12 @@ type: plan
 proposal: ../proposal.md
 created: YYYY-MM-DD
 status: draft
+# status 可用值：draft | planned | approved | completed | abandoned
+# - draft: sdd-propose 创建占位时写入
+# - planned: sdd-explore 开始探索时写入，方案已产出但尚未经人类确认
+# - approved: 人类确认方案可行，授权 sdd-apply 执行
+# - completed: sdd-archive 归档时写入
+# - abandoned: sdd-archive 放弃时写入
 ---
 
 # [功能名称] 实施方案

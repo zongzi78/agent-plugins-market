@@ -26,7 +26,15 @@ description: >
 ## 前置检查（Hard Gate）
 
 1. 无活跃 change → 拒绝，提示"请先通过 /sdd-propose 创建 change"
-2. plan.md 为空（仅占位 front matter）→ 拒绝，提示"请先通过 /sdd-explore 制定实施方案"
+2. plan.md 的状态检查：
+   a. plan.md 为空（仅占位 front matter）→ 拒绝，提示"请先通过 /sdd-explore 制定实施方案"
+   b. 读取 proposal.md 和 plan.md 的 status 字段
+   c. 两者不一致 → ⚠️ 警告（不阻塞），提示"proposal 与 plan 的 status 不一致，可能存在状态管理错误"
+   d. status 均 ≠ `approved` → ⚠️ 警告 + AskUserQuestion：
+      - 选项 1（推荐）：「回 explore 确认方案」— 取消本次 apply，用户确认计划后重新执行
+      - 选项 2：「强制执行」— 我确认方案无误，直接开始编码
+      - 选项 3：「取消」
+      - 默认光标：选项 1
 3. 有多个活跃 change → 用 AskUserQuestion 让用户选择
 4. plan.md 有已完成任务（`- [x]`）→ 提示"检测到部分任务已完成（X/N），将从第一个未完成任务继续"（断点续传）
 5. 当检测到 git 仓库且当前在 main/master 分支时 → 简短提醒"⚠️ 当前在 main 分支，建议确认是否需要创建功能分支"，不阻塞执行
