@@ -1,7 +1,7 @@
 ---
 title: "AI-SDD 行为准则"
 type: supplement-rules
-version: 1.7.7
+version: 1.7.8
 last_updated: 2026-07-10
 updated_by: human+AI
 status: production
