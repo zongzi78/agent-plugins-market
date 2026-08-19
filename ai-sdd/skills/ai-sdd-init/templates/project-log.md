@@ -2,11 +2,25 @@
 title: "项目日志"
 type: project-log
 version: 2.0
-last_updated: 2026-06-04
+last_updated: 2026-08-19
 updated_by: human+AI
 ---
 
 # 项目日志
+
+## VCS 状态
+
+<!-- ai-sdd-init 初始化时探测并填写；后续技能（apply/sync/check）复用 -->
+
+| 项 | 值 |
+|----|-----|
+| VCS | （git / SVN / 无 VCS） |
+| 仓库根 | （路径，无则 —） |
+| 留痕机制 | （git 提交 / `.ai/backups/` 改前备份，每文件最近 5 份） |
+| 用户选择 | （快照模式 / git init 本地镜像 / 不适用；SVN 工作树 → 快照模式） |
+| 备注 | SVN 工作树内禁止 git init，最终提交由人类在 SVN 完成 |
+
+---
 
 ## 活跃 Change
 

@@ -1,4 +1,4 @@
-## 场景：AI-SDD 文档腐烂修复
+﻿## 场景：AI-SDD 文档腐烂修复
 
 你正在为一个已接入 AI-SDD 的项目修复腐烂的规范文档。
 项目当前 AI-SDD 版本：[从 .ai/supplement-rules.md 读取 version]

@@ -1,8 +1,8 @@
 ---
 title: "AI-SDD 行为准则"
 type: supplement-rules
-version: 1.7.8
-last_updated: 2026-07-10
+version: 1.7.9
+last_updated: 2026-08-19
 updated_by: human+AI
 status: production
 description: >
@@ -137,6 +137,25 @@ description: >
 - 会话有且只有唯一的明确产出目标
 - 开始时明确 → 过程中不偏离 → 结束时提交或回滚
 - 跨任务状态通过文件传递，不通过聊天历史
+
+---
+
+# 六、变更留痕规则（VCS 适配）
+
+## 6.1 VCS 上下文
+
+- 项目启动时探测 VCS 上下文（git / SVN / 无 VCS），结果记录于 `.ai/project-log.md` 的「VCS 状态」。
+- **有 git 仓库**：留痕 = git 本地提交（commit 不 push）；修改前可先查看 status/diff。
+- **无 git（含 SVN 工作树）**：留痕 = `.ai/backups/` 改前备份；修改任何既有文件前**必须先做改前备份**（复制原文件到 `.ai/backups/`，保留最近 5 份）。
+- **SVN 工作树内禁止 `git init`**（避免双 VCS）；最终提交由人类在 SVN 完成。
+
+## 6.2 备份纪律（无 git 项目）
+
+- 修改或删除任何既有文件前，先把该文件原样复制到 `.ai/backups/<相对路径>/<时间戳 YYYYMMDD-HHMMSS>`（时间戳即备份文件名；目录缺失时自动创建）；每个文件保留最近 **5** 份，超出删最旧；新文件无需备份。
+- 示例：修改 `src/main.py` 前 → 复制到 `.ai/backups/src/main.py/20260819-163000`；再次修改前 → `.ai/backups/src/main.py/20260819-183000`。恢复：把 `.ai/backups/<相对路径>/` 中最近一份拷回原位置。
+- apply 阶段：change 开始时对涉及文件做首次备份，change 内每次修改前追加备份。
+- sync 阶段：`.ai/doc/` 的修改沿用 `.sync-backup/`（不额外写入 `.ai/backups/`）。
+- 不因单个文件或一次性修改新建 git 仓库；仓库只建在项目边界，且需人类确认。
 
 ---
 

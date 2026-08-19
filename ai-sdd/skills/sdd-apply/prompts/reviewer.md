@@ -25,7 +25,7 @@ Subagent (general-purpose):
 
     [指导 reviewer 从哪里获取 diff：
      - 如有 git：使用 git diff 查看该任务的变更
-     - 如无 git：直接读取 implementer 修改的文件列表]
+     - 如无 git：优先使用快照 diff（.ai/backups/，若该任务已快照）；无快照时直接读取 implementer 修改的文件列表]
 
     ## 审查原则
 
