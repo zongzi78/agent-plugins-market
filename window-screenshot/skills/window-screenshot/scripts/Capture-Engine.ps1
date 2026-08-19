@@ -50,6 +50,8 @@ function Capture-WindowScreenshot {
     $restoreFailed = $false
     $wasTopmost = $false
     $originalFgHwnd = [IntPtr]::Zero
+    $interactiveSession = [Environment]::UserInteractive -and
+                          ([System.Diagnostics.Process]::GetCurrentProcess().SessionId -gt 0)
 
     try {
         # --- Pre-capture: restore minimized window (progressive) ---
@@ -107,6 +109,7 @@ function Capture-WindowScreenshot {
             return @{
                 success = $false
                 error = "Invalid window size (${width}x${height}), window may not be visible"
+                interactiveSession = $interactiveSession
             }
         }
 
@@ -237,9 +240,13 @@ function Capture-WindowScreenshot {
             else {
                 $errorMsg = "All capture methods failed. The application may not support WM_PRINT and screen capture was not possible."
             }
+            if (-not $interactiveSession) {
+                $errorMsg += " The current session may not have an interactive desktop (e.g. service/remote session), so BitBlt screen capture is unavailable."
+            }
             return @{
                 success = $false
                 error = $errorMsg
+                interactiveSession = $interactiveSession
             }
         }
 
@@ -265,6 +272,7 @@ function Capture-WindowScreenshot {
             pid = $window.pid
             windowTitle = $window.title
             method = $finalMethod
+            interactiveSession = $interactiveSession
         }
     }
     finally {

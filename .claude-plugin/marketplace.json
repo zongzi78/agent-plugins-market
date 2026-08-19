@@ -21,7 +21,7 @@
       "name": "window-screenshot",
       "source": "./window-screenshot",
       "description": "Windows 窗口截图工具 -- PrintWindow/BitBlt API，纯 PowerShell",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "author": {
         "name": "zongzi78"
       },

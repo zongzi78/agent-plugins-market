@@ -22,9 +22,11 @@ param(
 # ============================================================
 if ($ListWindows) {
     $windows = Get-WindowList
+    if (-not $windows) { $windows = @() }
     $result = @{
         success = $true
         windows = $windows
+        processNameLookupBlocked = [bool]$script:ProcessNameLookupBlocked
     }
     Write-Output (Output-Json $result)
     exit 0
@@ -47,12 +49,28 @@ if (-not $ProcessName -and $ProcessId -le 0 -and -not $WindowTitle -and -not $Wi
 # Enumerate and match windows
 # ============================================================
 $allWindows = Get-WindowList
-$matches = Find-TargetWindows -allWindows $allWindows -ProcessName $ProcessName -ProcessId $ProcessId -WindowTitle $WindowTitle -WindowClass $WindowClass -Hwnd $Hwnd
+$matches = $null
+try {
+    $matches = Find-TargetWindows -allWindows $allWindows -ProcessName $ProcessName -ProcessId $ProcessId -WindowTitle $WindowTitle -WindowClass $WindowClass -Hwnd $Hwnd
+}
+catch {
+    # e.g. invalid -Hwnd value (non-hex) -> graceful JSON error instead of crash
+    $errorResult = @{
+        success = $false
+        error = "Failed to match windows: $($_.Exception.Message)"
+        hint = "Check that -Hwnd is a valid hexadecimal handle (e.g. 0x1A2B3C or 1A2B3C)"
+        processNameLookupBlocked = [bool]$script:ProcessNameLookupBlocked
+    }
+    Write-Error (Output-Json $errorResult)
+    Write-Output (Output-Json $errorResult)
+    exit 1
+}
 
 if ($matches.Count -eq 0) {
     $errorResult = @{
         success = $false
         error = "No matching window found. Use -ListWindows to see available windows."
+        processNameLookupBlocked = [bool]$script:ProcessNameLookupBlocked
     }
     Write-Error (Output-Json $errorResult)
     Write-Output (Output-Json $errorResult)
@@ -77,6 +95,7 @@ if ($matches.Count -gt 1) {
             error = "Found $($matches.Count) matching windows from $($uniquePids.Count) different processes"
             windows = $matches
             hint = "Use -ProcessId or -Hwnd to select a specific window"
+            processNameLookupBlocked = [bool]$script:ProcessNameLookupBlocked
         }
         Write-Error (Output-Json $errorResult)
         Write-Output (Output-Json $errorResult)
@@ -97,13 +116,44 @@ if (-not $OutputPath) {
 
 $outputDir = Split-Path $OutputPath -Parent
 if ($outputDir -and -not (Test-Path $outputDir)) {
-    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    try {
+        New-Item -ItemType Directory -Path $outputDir -Force -ErrorAction Stop | Out-Null
+    }
+    catch {
+        $errorResult = @{
+            success = $false
+            error = "Cannot create output directory: $($_.Exception.Message)"
+            hint = "Specify -OutputPath to a writable directory (restricted environments may limit some paths)"
+            processNameLookupBlocked = [bool]$script:ProcessNameLookupBlocked
+        }
+        Write-Error (Output-Json $errorResult)
+        Write-Output (Output-Json $errorResult)
+        exit 1
+    }
 }
 
 # ============================================================
 # Capture and output
 # ============================================================
-$result = Capture-WindowScreenshot -window $targetWindow -outputPath $OutputPath
+$interactiveSession = [Environment]::UserInteractive -and
+                      ([System.Diagnostics.Process]::GetCurrentProcess().SessionId -gt 0)
+
+$result = $null
+try {
+    $result = Capture-WindowScreenshot -window $targetWindow -outputPath $OutputPath
+}
+catch {
+    $result = @{
+        success = $false
+        error = "Capture failed: $($_.Exception.Message)"
+        hint = "If this is a sandbox/permission error, specify -OutputPath to a writable directory or retry with elevated permissions"
+        interactiveSession = $interactiveSession
+    }
+}
+
+# Attach environment diagnostics to the result
+$result["processNameLookupBlocked"] = [bool]$script:ProcessNameLookupBlocked
+
 Write-Output (Output-Json $result)
 
 if ($result.success) {

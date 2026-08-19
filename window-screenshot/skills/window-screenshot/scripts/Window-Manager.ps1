@@ -2,8 +2,21 @@
 # Window enumeration, filtering, and JSON output helpers.
 # Requires: Win32-APIs.ps1 (dot-sourced before this file)
 
+$script:ProcessNameLookupBlocked = $false
+
 function Get-WindowList {
     $windows = [System.Collections.ArrayList]::new()
+    $script:ProcessNameLookupBlocked = $false
+
+    # Probe once whether Get-Process works in this environment at all.
+    # Querying our own process always succeeds in a healthy environment,
+    # so any failure here means the environment restricts process lookup.
+    try {
+        $null = Get-Process -Id $PID -ErrorAction Stop
+    }
+    catch {
+        $script:ProcessNameLookupBlocked = $true
+    }
 
     $callback = [EnumWindowsProc]{
         param([IntPtr]$hwnd, [IntPtr]$lParam)
@@ -22,8 +35,20 @@ function Get-WindowList {
         $processId = 0
         [Win32]::GetWindowThreadProcessId($hwnd, [ref]$processId) | Out-Null
 
-        $proc = Get-Process -Id $processId -ErrorAction SilentlyContinue
-        $procName = if ($proc) { $proc.ProcessName } else { "unknown" }
+        # Best-effort process name lookup. A "process not found" race (or
+        # PID 0 system windows) is normal and must NOT set the blocked flag;
+        # any other failure (e.g. access denied under a restricted token)
+        # means process name lookup is impaired in this environment.
+        $procName = "unknown"
+        try {
+            $proc = Get-Process -Id $processId -ErrorAction Stop
+            if ($proc) { $procName = $proc.ProcessName }
+        }
+        catch {
+            if ($_.FullyQualifiedErrorId -ne 'NoProcessFoundForGivenId,Microsoft.PowerShell.Commands.GetProcessCommand') {
+                $script:ProcessNameLookupBlocked = $true
+            }
+        }
 
         [void]$windows.Add(@{
             pid = $processId
@@ -58,7 +83,10 @@ function Find-TargetWindows {
         $filtered = $filtered | Where-Object { $_.processName -ieq $ProcessName }
     }
     if ($WindowTitle) {
-        $filtered = $filtered | Where-Object { $_.title -like "*$WindowTitle*" }
+        # Escape wildcard characters so -WindowTitle is a literal substring
+        # match (prevents WildcardPatternException on titles containing "[").
+        $escapedTitle = [WildcardPattern]::Escape($WindowTitle)
+        $filtered = $filtered | Where-Object { $_.title -like "*$escapedTitle*" }
     }
     if ($WindowClass) {
         $filtered = $filtered | Where-Object { $_.class -ieq $WindowClass }
