@@ -4,7 +4,7 @@
 # then forward all args to enc.py (preferred) or enc.js (fallback).
 # Candidate order: python3 -> python -> py -3 -> uv(run) -> node.
 #   enc.ps1 selfcheck                 -> runtime list (handled natively)
-#   enc.ps1 --runtime auto|python|node <subcommand> [options...]
+#   enc.ps1 --runtime auto|python3|python|py -3|uv|node <subcommand> [options...]
 # Keep this file pure ASCII (PS5.1 reads no-BOM as ANSI).
 param()
 
@@ -98,8 +98,8 @@ for ($i = 0; $i -lt $args.Count; $i++) {
     else { $rest += $a }
 }
 
-if ($runtime -notin @('auto', 'python', 'node', '')) {
-    Write-Json '{"ok":false,"error":"invalid --runtime value; use auto|python|node","exitCode":1,"hint":null}'
+if ($runtime -notin @('auto', 'python3', 'python', 'py -3', 'uv', 'node')) {
+    Write-Json '{"ok":false,"error":"invalid --runtime value; use auto|python3|python|py -3|uv|node","exitCode":1,"hint":null}'
     exit 1
 }
 
@@ -107,24 +107,47 @@ if ($rest.Count -gt 0 -and $rest[0] -eq 'selfcheck') {
     Invoke-Selfcheck
 }
 
-$py3 = Test-PythonCmd -ProbeCmd @('python3', '--version')
-$py = Test-PythonCmd -ProbeCmd @('python', '--version')
-$pyLauncher = Test-PythonCmd -ProbeCmd @('py', '-3', '--version')
-$uv = Test-UvCmd
-
-if ($runtime -eq 'python' -or $runtime -eq 'auto') {
+if ($runtime -eq 'auto') {
+    $py3 = Test-PythonCmd -ProbeCmd @('python3', '--version')
     if ($py3.usable) { & python3 (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
+    $py = Test-PythonCmd -ProbeCmd @('python', '--version')
     if ($py.usable) { & python (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
+    $pyLauncher = Test-PythonCmd -ProbeCmd @('py', '-3', '--version')
     if ($pyLauncher.usable) { & py -3 (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
+    $uv = Test-UvCmd
     if ($uv.usable) { & uv run --no-project python (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
-    if ($runtime -eq 'python') {
-        Write-Json '{"ok":false,"error":"no usable Python runtime (python3/python/py -3/uv all unavailable)","exitCode":1,"hint":"install Python, or use --runtime node"}'
-        exit 1
-    }
-}
-if ($runtime -eq 'node' -or $runtime -eq 'auto') {
     $node = Test-NodeCmd
     if ($node.usable) { & node (Join-Path $scriptDir 'enc.js') @rest; exit $LASTEXITCODE }
+    Write-Json '{"ok":false,"error":"no usable runtime (python3/python/py -3/uv/node all unavailable)","exitCode":1,"hint":"install Python or Node, or use --runtime to force"}'
+    exit 1
 }
-Write-Json '{"ok":false,"error":"no usable runtime (python3/python/py -3/uv/node all unavailable)","exitCode":1,"hint":"install Python or Node, or use --runtime to force"}'
-exit 1
+if ($runtime -eq 'python3') {
+    $py3 = Test-PythonCmd -ProbeCmd @('python3', '--version')
+    if ($py3.usable) { & python3 (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
+    Write-Json '{"ok":false,"error":"no usable runtime python3","exitCode":1,"hint":"install python3, or use --runtime auto"}'
+    exit 1
+}
+if ($runtime -eq 'python') {
+    $py = Test-PythonCmd -ProbeCmd @('python', '--version')
+    if ($py.usable) { & python (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
+    Write-Json '{"ok":false,"error":"no usable runtime python","exitCode":1,"hint":"install python, or use --runtime auto"}'
+    exit 1
+}
+if ($runtime -eq 'py -3') {
+    $pyLauncher = Test-PythonCmd -ProbeCmd @('py', '-3', '--version')
+    if ($pyLauncher.usable) { & py -3 (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
+    Write-Json '{"ok":false,"error":"no usable runtime py -3","exitCode":1,"hint":"install Python launcher, or use --runtime auto"}'
+    exit 1
+}
+if ($runtime -eq 'uv') {
+    $uv = Test-UvCmd
+    if ($uv.usable) { & uv run --no-project python (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
+    Write-Json '{"ok":false,"error":"no usable runtime uv","exitCode":1,"hint":"install uv, or use --runtime auto"}'
+    exit 1
+}
+if ($runtime -eq 'node') {
+    $node = Test-NodeCmd
+    if ($node.usable) { & node (Join-Path $scriptDir 'enc.js') @rest; exit $LASTEXITCODE }
+    Write-Json '{"ok":false,"error":"no usable runtime node","exitCode":1,"hint":"install Node, or use --runtime auto"}'
+    exit 1
+}

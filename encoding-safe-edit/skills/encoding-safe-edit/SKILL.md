@@ -40,7 +40,15 @@ ENC="<SKILL_DIR>/scripts/enc"
 $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 ```
 
-`enc` / `enc.ps1` 是零依赖启动器：自动探测可用运行时（Python 优先，Node 兜底），转发到 `enc.py` / `enc.js`。无可用运行时则拒绝执行并给出提示（fail-closed）。可用 `--runtime auto|python|node` 显式指定运行时（如 `enc --runtime node detect <file>`）。
+`enc` / `enc.ps1` 是零依赖启动器：自动探测可用运行时（Python 优先，Node 兜底），转发到 `enc.py` / `enc.js`。无可用运行时则拒绝执行并给出提示（fail-closed）。
+
+`--runtime` 接受 `auto`（默认）、`python3`、`python`、`py -3`、`uv`、`node`。`auto` 按 `python3 → python → py -3 → uv (uv run --no-project python) → node` 依次探测，第一个可用即转发；显式值只探测并只使用该命令，不可用时 fail-closed（退出码 1）。含空格的值（`py -3`）作为单个参数传入，PowerShell 中写成 `--runtime 'py -3'`。项目策略固定运行时（如工作区强制 uv）时用显式值：
+
+```powershell
+enc.ps1 --runtime uv detect <file>
+```
+
+固定由 uv 提供 Python 的环境可绕过启动器直接调用：`uv run --no-project <SKILL_DIR>/scripts/enc.py <subcommand> ...`；固定 Node 时直接调用 `node <SKILL_DIR>/scripts/enc.js <subcommand> ...`。直连跳过运行时探测与兜底，仅应在项目约束已固定运行时使用。
 
 ## 标准工作流（修改任意文本文件）
 

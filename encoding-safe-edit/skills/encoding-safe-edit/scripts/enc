@@ -4,7 +4,7 @@
 # then forward all args to enc.py (preferred) or enc.js (fallback).
 # Candidate order: python3 -> python -> py -3 -> uv(run) -> node.
 #   enc selfcheck                          -> runtime list (handled natively)
-#   enc --runtime auto|python|node <sub> ... 
+#   enc --runtime auto|python3|python|py -3|uv|node <sub> ...
 set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -27,9 +27,9 @@ while [ $# -gt 0 ]; do
 done
 
 case "$runtime" in
-  auto|python|node|"") ;;
+  auto|python3|python|py\ -3|uv|node) ;;
   *)
-    echo '{"ok":false,"error":"invalid --runtime value; use auto|python|node","exitCode":1,"hint":null}'
+    echo '{"ok":false,"error":"invalid --runtime value; use auto|python3|python|py -3|uv|node","exitCode":1,"hint":null}'
     exit 1
     ;;
 esac
@@ -107,18 +107,39 @@ if [ "${args[0]:-}" = "selfcheck" ]; then
   selfcheck
 fi
 
-if [ "$runtime" = "python" ] || [ "$runtime" = "auto" ]; then
-  if is_python python3; then exec python3 "$DIR/enc.py" "${args[@]}"; fi
-  if is_python python; then exec python "$DIR/enc.py" "${args[@]}"; fi
-  if is_python py -3; then exec py -3 "$DIR/enc.py" "${args[@]}"; fi
-  if is_uv; then exec uv run --no-project python "$DIR/enc.py" "${args[@]}"; fi
-  if [ "$runtime" = "python" ]; then
-    echo '{"ok":false,"error":"no usable Python runtime (python3/python/py -3/uv all unavailable)","exitCode":1,"hint":"install Python, or use --runtime node"}'
+case "$runtime" in
+  auto)
+    if is_python python3; then exec python3 "$DIR/enc.py" "${args[@]}"; fi
+    if is_python python; then exec python "$DIR/enc.py" "${args[@]}"; fi
+    if is_python py -3; then exec py -3 "$DIR/enc.py" "${args[@]}"; fi
+    if is_uv; then exec uv run --no-project python "$DIR/enc.py" "${args[@]}"; fi
+    if is_node; then exec node "$DIR/enc.js" "${args[@]}"; fi
+    echo '{"ok":false,"error":"no usable runtime (python3/python/py -3/uv/node all unavailable)","exitCode":1,"hint":"install Python or Node, or use --runtime to force"}'
     exit 1
-  fi
-fi
-if [ "$runtime" = "node" ] || [ "$runtime" = "auto" ]; then
-  if is_node; then exec node "$DIR/enc.js" "${args[@]}"; fi
-fi
-echo '{"ok":false,"error":"no usable runtime (python3/python/py -3/uv/node all unavailable)","exitCode":1,"hint":"install Python or Node, or use --runtime to force"}'
-exit 1
+    ;;
+  python3)
+    if is_python python3; then exec python3 "$DIR/enc.py" "${args[@]}"; fi
+    echo '{"ok":false,"error":"no usable runtime python3","exitCode":1,"hint":"install python3, or use --runtime auto"}'
+    exit 1
+    ;;
+  python)
+    if is_python python; then exec python "$DIR/enc.py" "${args[@]}"; fi
+    echo '{"ok":false,"error":"no usable runtime python","exitCode":1,"hint":"install python, or use --runtime auto"}'
+    exit 1
+    ;;
+  py\ -3)
+    if is_python py -3; then exec py -3 "$DIR/enc.py" "${args[@]}"; fi
+    echo '{"ok":false,"error":"no usable runtime py -3","exitCode":1,"hint":"install Python launcher, or use --runtime auto"}'
+    exit 1
+    ;;
+  uv)
+    if is_uv; then exec uv run --no-project python "$DIR/enc.py" "${args[@]}"; fi
+    echo '{"ok":false,"error":"no usable runtime uv","exitCode":1,"hint":"install uv, or use --runtime auto"}'
+    exit 1
+    ;;
+  node)
+    if is_node; then exec node "$DIR/enc.js" "${args[@]}"; fi
+    echo '{"ok":false,"error":"no usable runtime node","exitCode":1,"hint":"install Node, or use --runtime auto"}'
+    exit 1
+    ;;
+esac

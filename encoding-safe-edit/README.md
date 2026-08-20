@@ -4,7 +4,7 @@
 
 ## 系统要求
 
-- 运行时：Python 3.8+ 或 Node.js 18+（`enc` 启动器自动探测，Python 优先、Node 兜底）
+- 运行时：Python 3.8+ 或 Node.js 18+（`enc` 启动器自动探测，Python 优先、Node 兜底；`--runtime auto|python3|python|py -3|uv|node` 可显式指定，默认 `auto`）
 - 平台：Windows / Linux / macOS（Windows 下 PowerShell 5.1+）
 
 ## 快速使用

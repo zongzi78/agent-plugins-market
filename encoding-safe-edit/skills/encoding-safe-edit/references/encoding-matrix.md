@@ -51,7 +51,8 @@
 | 显式遗留编码（big5 等） | ✓ | ✓ | ✗ | ✗ |
 | 依赖 | Python 3.7+ 标准库 | Node + 自带 codec 数据（enc.gbkdata.js） | .NET（PS 内置） | iconv + coreutils |
 
-- `enc`/`enc.ps1` 启动器探测顺序：`python3 → python → py -3 → uv(run python) → node`；Python 可用优先，Node 兜底。
+- `enc`/`enc.ps1` 启动器探测顺序：`python3 → python → py -3 → uv(run python) → node`；Python 可用优先，Node 兜底。`--runtime` 支持 `auto/python3/python/py -3/uv/node`：`auto` 按上述顺序，显式值只探测并只使用该命令，不可用即 fail-closed。
+- 固定运行时的工作区可直连：`uv run --no-project <SKILL_DIR>/scripts/enc.py <subcommand> ...` 或 `node <SKILL_DIR>/scripts/enc.js <subcommand> ...`；直连跳过运行时探测与兜底。
 - 双实现一致性契约：enc.js 与 enc.py 严格语义一致（以 enc.py 为基准）；codec 数据由 Python 标准库 codec 实测生成并内置（`enc.gbkdata.js`）。
 
 ## 4. 严格解码器差异
