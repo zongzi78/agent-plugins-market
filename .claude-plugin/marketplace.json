@@ -27,6 +27,18 @@
       },
       "license": "MIT",
       "category": "productivity"
+    },
+    {
+      "name": "encoding-safe-edit",
+      "source": "./encoding-safe-edit",
+      "description": "文本编码安全编辑 -- GBK/GB18030/UTF-8/UTF-16 安全读改写",
+      "version": "1.0.0",
+      "author": {
+        "name": "zongzi78"
+      },
+      "license": "MIT",
+      "category": "development",
+      "keywords": ["encoding", "gbk", "utf-8", "text-edit", "encoding-safe"]
     }
   ]
 }

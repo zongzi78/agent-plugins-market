@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# enc - encoding-safe-edit launcher (bash/sh: Git Bash / WSL / Linux / macOS)
+# Zero-dependency launcher: probe a usable runtime by EXECUTING --version,
+# then forward all args to enc.py (preferred) or enc.js (fallback).
+# Candidate order: python3 -> python -> py -3 -> uv(run) -> node.
+#   enc selfcheck                          -> runtime list (handled natively)
+#   enc --runtime auto|python|node <sub> ... 
+set -u
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+runtime="auto"
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --runtime)
+      shift
+      if [ $# -gt 0 ]; then runtime="$1"; else runtime=""; fi
+      ;;
+    --runtime=*)
+      runtime="${1#--runtime=}"
+      ;;
+    *)
+      args+=("$1")
+      ;;
+  esac
+  shift
+done
+
+case "$runtime" in
+  auto|python|node|"") ;;
+  *)
+    echo '{"ok":false,"error":"invalid --runtime value; use auto|python|node","exitCode":1,"hint":null}'
+    exit 1
+    ;;
+esac
+
+# --- probe helpers: return 0 if usable ---
+probe_out() { # "$@" = command; echoes combined output
+  "$@" 2>&1
+}
+is_python() { # "$@" = command
+  local out
+  out="$(probe_out "$@" --version)"
+  [ $? -eq 0 ] && echo "$out" | grep -qE 'Python [0-9]+\.[0-9]+'
+}
+is_uv() {
+  # 探测必须实际拉起 Python（uv 存在不代表能提供 Python）
+  local out
+  out="$(probe_out uv run --no-project python --version)"
+  [ $? -eq 0 ] && echo "$out" | grep -qE 'Python [0-9]+\.[0-9]+'
+}
+is_node() {
+  local out
+  out="$(probe_out node --version)"
+  [ $? -eq 0 ] && echo "$out" | grep -qE 'v[0-9]+\.[0-9]+'
+}
+
+jstr() { # JSON 字符串（引号包裹 + 转义；空输入输出 null）
+  if [ $# -eq 0 ] || [ -z "$1" ]; then printf 'null'; else printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\"/g')"; fi
+}
+
+
+selfcheck() {
+  local py3=0 py=0 pyl=0 uv=0 node=0 selected=""
+  local f_py3=0 f_py=0 f_pyl=0 f_uv=0 f_node=0
+  local v_py3= v_py= v_pyl= v_uv= v_node=
+  if command -v python3 >/dev/null 2>&1; then
+    f_py3=1
+    if is_python python3; then py3=1; v_py3="$(probe_out python3 --version 2>&1 | head -n1)"; fi
+  fi
+  if command -v python >/dev/null 2>&1; then
+    f_py=1
+    if is_python python; then py=1; v_py="$(probe_out python --version 2>&1 | head -n1)"; fi
+  fi
+  if command -v py >/dev/null 2>&1; then
+    f_pyl=1
+    if is_python py -3; then pyl=1; v_pyl="$(probe_out py -3 --version 2>&1 | head -n1)"; fi
+  fi
+  if command -v uv >/dev/null 2>&1; then
+    f_uv=1
+    if is_uv; then uv=1; v_uv="$(probe_out uv run --no-project python --version 2>&1 | grep -m1 'Python [0-9]')"; fi
+  fi
+  if command -v node >/dev/null 2>&1; then
+    f_node=1
+    if is_node; then node=1; v_node="$(probe_out node --version 2>&1 | head -n1)"; fi
+  fi
+  if [ "$py3" = "1" ]; then selected="python3"
+  elif [ "$py" = "1" ]; then selected="python"
+  elif [ "$pyl" = "1" ]; then selected="py -3"
+  elif [ "$uv" = "1" ]; then selected="uv"
+  elif [ "$node" = "1" ]; then selected="node"; fi
+  local ok=true msg=""
+  if [ -z "$selected" ]; then ok=false; msg="no usable runtime; install Python or Node, or use --runtime to force"; fi
+  printf '{"ok":%s,"selectedRuntime":%s,"message":%s,"runtimes":' \
+    "$( [ "$ok" = true ] && printf true || printf false )" "$(jstr "$selected")" "$(jstr "$msg")"
+  printf '{"python3":{"found":%s,"usable":%s,"version":%s},"python":{"found":%s,"usable":%s,"version":%s},"py -3":{"found":%s,"usable":%s,"version":%s},"uv":{"found":%s,"usable":%s,"version":%s},"node":{"found":%s,"usable":%s,"version":%s}}}\n' \
+    "$( [ "$f_py3" = 1 ] && printf true || printf false )" "$( [ "$py3" = 1 ] && printf true || printf false )" "$(jstr "$v_py3")" \
+    "$( [ "$f_py" = 1 ] && printf true || printf false )" "$( [ "$py" = 1 ] && printf true || printf false )" "$(jstr "$v_py")" \
+    "$( [ "$f_pyl" = 1 ] && printf true || printf false )" "$( [ "$pyl" = 1 ] && printf true || printf false )" "$(jstr "$v_pyl")" \
+    "$( [ "$f_uv" = 1 ] && printf true || printf false )" "$( [ "$uv" = 1 ] && printf true || printf false )" "$(jstr "$v_uv")" \
+    "$( [ "$f_node" = 1 ] && printf true || printf false )" "$( [ "$node" = 1 ] && printf true || printf false )" "$(jstr "$v_node")"
+  exit 0
+}
+
+
+if [ "${args[0]:-}" = "selfcheck" ]; then
+  selfcheck
+fi
+
+if [ "$runtime" = "python" ] || [ "$runtime" = "auto" ]; then
+  if is_python python3; then exec python3 "$DIR/enc.py" "${args[@]}"; fi
+  if is_python python; then exec python "$DIR/enc.py" "${args[@]}"; fi
+  if is_python py -3; then exec py -3 "$DIR/enc.py" "${args[@]}"; fi
+  if is_uv; then exec uv run --no-project python "$DIR/enc.py" "${args[@]}"; fi
+  if [ "$runtime" = "python" ]; then
+    echo '{"ok":false,"error":"no usable Python runtime (python3/python/py -3/uv all unavailable)","exitCode":1,"hint":"install Python, or use --runtime node"}'
+    exit 1
+  fi
+fi
+if [ "$runtime" = "node" ] || [ "$runtime" = "auto" ]; then
+  if is_node; then exec node "$DIR/enc.js" "${args[@]}"; fi
+fi
+echo '{"ok":false,"error":"no usable runtime (python3/python/py -3/uv/node all unavailable)","exitCode":1,"hint":"install Python or Node, or use --runtime to force"}'
+exit 1

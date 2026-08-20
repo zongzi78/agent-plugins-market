@@ -1,0 +1,23 @@
+{
+  "name": "encoding-safe-edit",
+  "version": "1.0.0",
+  "description": "确保文本文件读改写不破坏原始编码的编码安全编辑 skill（GBK/GB18030/UTF-8/UTF-16）",
+  "author": {
+    "name": "zongzi78"
+  },
+  "license": "MIT",
+  "keywords": ["encoding", "gbk", "utf-8", "text-edit", "encoding-safe"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Encoding Safe Edit",
+    "shortDescription": "文本编码安全编辑工具",
+    "longDescription": "在读取、修改或写入文本文件前自动探测编码，并以原编码安全替换；覆盖 GBK/GB18030/UTF-8/UTF-16，提供转码与事后验证，防止中文 Windows 默认 ANSI 写回破坏 UTF-8。",
+    "developerName": "zongzi78",
+    "category": "Development",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "修改可能含中文注释的 C/C++ 源文件前先检测编码",
+      "修复中文 Windows 下被 ANSI 写坏的 UTF-8 文本文件"
+    ]
+  }
+}

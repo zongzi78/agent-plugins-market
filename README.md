@@ -8,6 +8,7 @@
 |------|------|------|
 | [ai-sdd](./ai-sdd/) | AI-SDD v3 规范驱动开发方法论 | Development |
 | [window-screenshot](./window-screenshot/) | Windows 窗口截图工具 | Productivity |
+| [encoding-safe-edit](./encoding-safe-edit/) | 文本编码安全编辑（GBK/GB18030/UTF-8/UTF-16） | Development |
 
 ## 安装
 
@@ -17,6 +18,7 @@
 /plugin marketplace add zongzi78/agent-plugins-market
 /plugin install ai-sdd@selfskill-plugins
 /plugin install window-screenshot@selfskill-plugins
+/plugin install encoding-safe-edit@selfskill-plugins
 ```
 
 ### OpenAI Codex
