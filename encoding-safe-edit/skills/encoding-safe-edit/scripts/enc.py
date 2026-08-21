@@ -671,10 +671,26 @@ def cmd_verify(path, explicit):
     if damaged:
         action = "file appears damaged; restore from backup (e.g. <file>.orig) if available and re-edit via enc replace"
     else:
-        action = "no damage detected; safe to proceed"
+        action = "no damage detected; safe to proceed (run `enc cleanup <file>` to remove the backup snapshot)"
     return emit({"ok": True, "file": os.path.abspath(path), "encoding": enc, "confidence": det["confidence"],
                  "fffdCount": fffd_count, "fffdSamples": fffd_samples, "qCount": q_count, "qRatio": round(q_ratio, 6),
                  "mojibakePatterns": mojibake, "damaged": damaged, "suggestedAction": action}, EXIT_OK)
+
+
+def cmd_cleanup(path):
+    """删除 <file>.orig 单步撤销快照；幂等（无可删时 removed=null）。"""
+    if not is_regular_file(path):
+        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+    backup = path + ".orig"
+    if not os.path.lexists(backup):
+        return emit({"ok": True, "file": os.path.abspath(path), "removed": None}, EXIT_OK)
+    if not os.path.isfile(backup):
+        return emit(err_json("backup path is not a regular file: %s" % backup, EXIT_ERROR), EXIT_ERROR)
+    try:
+        os.remove(backup)
+    except OSError as e:
+        return emit(err_json("cleanup failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+    return emit({"ok": True, "file": os.path.abspath(path), "removed": os.path.abspath(backup)}, EXIT_OK)
 
 
 def _probe_runtime(cmd):
@@ -714,6 +730,7 @@ subcommands:
   convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep]
           [--line-ending keep|crlf|lf] [--dry-run] [--no-backup]
   verify <file> [--encoding <enc>]
+  cleanup <file>
   selfcheck
 """
 
@@ -800,6 +817,10 @@ def main(argv):
         if len(args) != 1:
             return emit(err_json("verify requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
         return cmd_verify(args[0], enc)
+    if sub == "cleanup":
+        if len(args) != 1:
+            return emit(err_json("cleanup requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
+        return cmd_cleanup(args[0])
     if sub == "selfcheck":
         return cmd_selfcheck()
     return emit(err_json("unknown subcommand: %s" % sub, EXIT_ERROR), EXIT_ERROR)

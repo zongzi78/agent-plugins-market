@@ -21,6 +21,9 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 
 # 3) 事后验证
 & $enc verify file.txt
+
+# 4) 确认无误后清理 .orig 快照（避免残留）
+& $enc cleanup file.txt
 ```
 
 ## 子命令速查

@@ -20,7 +20,7 @@ description: 确保对任意文本文件的读取、编辑、写入不破坏原�
 
 - **任何写操作前先 `enc detect`**；detect 未判定 `safeToEditDirectly: true`（非 UTF-8 / 带 BOM / 双合法 / 未知）时，写一律用 `enc replace` / `enc convert`。
 - **fail-closed**：任一操作失败（编码未知、解码失败、编码失败、op 未匹配且未加 `--force`）→ **不写盘**，按退出码返回。
-- **默认自动备份**：每次写回前生成 `<file>.orig`（可用 `--no-backup` 关闭；不依赖 git）。
+- **默认自动备份（单步撤销快照）**：每次写回前生成 `<file>.orig`（可用 `--no-backup` 关闭；不依赖 git）。**覆盖式**：只保留最近一次写前状态，不是历史备份；确认无误后 `enc cleanup <file>` 删除快照，不残留。
 - **中文内容必须走文件**：含中文的 ops 用 `--from-file <ops.json>`，不要把中文直接塞进命令行参数（Windows 命令行会破坏中文）。
 - **写回保留原编码、原 BOM、原行尾**（mixed 行尾逐行保留）；带 BOM 文件禁止原生编辑。
 - 检测有歧义（ASCII / 双合法 / NUL-heavy / unknown）时**不许静默猜测**：看 detect 输出的 `decodeHints` 与项目约束（项目规则中声明的编码约定）决定，必要时用 `--encoding` 显式指定。
@@ -67,6 +67,7 @@ Read `references/detection-notes.md` 了解置信度与歧义细节（只需在�
    ops 格式：`[{"search":"...","replace":"...","label":"..."}]`；search/replace 按文件当前编码解释（Agent 以 UTF-8 书写，工具负责编码）。
 5. **convert（转码）**：`enc convert <file> --to <目标编码> [--from <源编码>] [--bom add|remove|keep] [--line-ending keep|crlf|lf]`。源编码不在自动判定集（如 big5）时必须 `--from` 显式指定。Read `references/encoding-matrix.md` 了解各编码与平台默认行为差异（BOM/行尾策略拿不准时）。
 6. **verify（事后验证）**：`enc verify <file>`。确认 `damaged: false`（无 U+FFFD、无转码痕迹）；若 `damaged: true`，从 `<file>.orig` 恢复并重新编辑。
+7. **cleanup（收尾）**：`enc cleanup <file>`。verify 确认 `damaged: false` 后删除 `.orig` 快照，避免残留；若还需继续编辑可延后到全部改完再清理。
 
 ## 子命令速查
 
@@ -115,6 +116,12 @@ enc verify <file> [--encoding <enc>]
 ```
 扫描 U+FFFD、`?` 密度、经典乱码模式（`锟斤拷` 等），输出 `damaged` 与建议动作。
 
+### cleanup
+```bash
+enc cleanup <file>
+```
+删除写操作生成的 `<file>.orig` 单步撤销快照。`.orig` 存在且为常规文件 → 删除并输出 `removed`；不存在 → 幂等返回 `removed: null`（退出码 0）；`<file>` 非常规文件或 `.orig` 是目录 → 不删除、退出码 1。
+
 ### selfcheck
 ```bash
 enc selfcheck
@@ -125,8 +132,8 @@ enc selfcheck
 
 | 退出码 | 含义 | 处理 |
 |-------|------|------|
-| 0 | 成功（detect/read/convert/verify 正常完成；replace 全部匹配并应用；dry-run 校验通过） | 继续 |
-| 1 | 错误（参数错误、文件不存在、IO 失败、编码未知/解码失败/编码失败，**未写盘**） | 读 stderr/错误 JSON，修正后重试 |
+| 0 | 成功（detect/read/convert/verify 正常完成；replace 全部匹配并应用；dry-run 校验通过；cleanup 已删除或无可删） | 继续 |
+| 1 | 错误（参数错误、文件不存在、IO 失败、编码未知/解码失败/编码失败、cleanup 目标非常规文件或 `.orig` 为目录，**未写盘/未删除**） | 读 stderr/错误 JSON，修正后重试 |
 | 2 | replace 存在未匹配项（未加 `--force` 时**未写盘**；加了 `--force` 时已写盘） | 检查 search 是否与文件实际内容/编码一致，必要时 `--encoding` |
 
 所有 stdout 为 UTF-8；错误对象 JSON：`{"ok":false,"error":"...","exitCode":1,"hint":"..."}`。日志/调试信息走 stderr。
@@ -148,13 +155,14 @@ enc selfcheck
 - **带 BOM 文件**：`safeToEditDirectly: false`，一律走 `enc replace`（自动保留 BOM）。
 - **Windows 命令行/管道会破坏中文**：中文 ops 用 `--from-file`；不要依赖把中文作为命令行参数传入。
 - **UTF-32 不支持**：detect 归 unknown；用显式 `--encoding` 也没有 UTF-32 解码路径，请先转码再处理。
+- **`.orig` 是单步撤销快照**：连续多次写会覆盖旧快照；确认无误后 `enc cleanup <file>` 删除，避免残留。目标在 git 仓库时，删除前建议把 `*.orig` 加入 `.gitignore` 防误提交（快照只作写后即时的撤销手段，不是历史备份）。
 - 性能：常规文本文件（<10MB）秒级；>50MB 不在目标范围。
 
 ## 关键约束（尾部重申，与头部一致）
 
 - 写前 `enc detect`；`safeToEditDirectly: true` 之外一律走 `enc replace` / `enc convert`，禁止原生写工具直接改。
 - fail-closed：任何失败不写盘（除非显式 `--force` 且已确认未匹配项）。
-- 默认自动备份 `<file>.orig`；先 `--dry-run` 预览。
+- 默认自动备份 `<file>.orig`（单步撤销快照，覆盖式）；确认后 `enc cleanup <file>` 清理。
 - 写回保留原编码 / 原 BOM / 原行尾；带 BOM 文件禁止原生编辑。
 - 中文 ops 走 `--from-file`；不静默猜测编码；项目默认编码以项目约束为准。
 

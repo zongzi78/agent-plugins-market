@@ -32,6 +32,9 @@ $ENC replace src/monitthread.cpp --from-file ops.json
 
 # 5) 事后验证
 $ENC verify src/monitthread.cpp
+
+# 6) 确认无误后清理 .orig 快照（避免残留）
+$ENC cleanup src/monitthread.cpp
 ```
 
 要点：不要用 Agent 原生 Edit/Write 直接改 GBK 文件；不要用命令行传中文 ops。
@@ -86,12 +89,15 @@ $ENC convert sjis.txt --to utf-8 --from shift_jis
 ```bash
 ENC="<SKILL_DIR>/scripts/enc"
 $ENC verify file.txt
-# damaged: false -> 安全
+# damaged: false -> 安全；确认后清理快照
+$ENC cleanup file.txt
 # damaged: true  -> 从备份恢复并重新编辑
 cp file.txt.orig file.txt
 ```
 
 verify 会扫描 U+FFFD、`?` 密度、经典乱码模式（`锟斤拷` 等）。
+
+注意：`.orig` 只保留**最近一次写前**的状态（覆盖式单步快照）；若之后又对该文件执行过写操作，恢复的是上一写前版本。确认无误后 `enc cleanup file.txt` 删除，避免残留。
 
 ## 7. 场景 G：dry-run 与批量替换
 

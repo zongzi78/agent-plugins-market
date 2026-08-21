@@ -932,10 +932,22 @@ function cmdVerify(p, explicit) {
   const damaged = fffdCount > 0 || Object.keys(mojibake).length > 0 || suspiciousQ;
   const action = damaged
     ? 'file appears damaged; restore from backup (e.g. <file>.orig) if available and re-edit via enc replace'
-    : 'no damage detected; safe to proceed';
+    : 'no damage detected; safe to proceed (run `enc cleanup <file>` to remove the backup snapshot)';
   return emit({ ok: true, file: path.resolve(p), encoding: enc, confidence: det.confidence,
     fffdCount: fffdCount, fffdSamples: fffdSamples, qCount: qCount, qRatio: Math.round(qRatio * 1e6) / 1e6,
     mojibakePatterns: mojibake, damaged: damaged, suggestedAction: action }, EXIT_OK);
+}
+function cmdCleanup(p) {
+  if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
+  const backup = p + '.orig';
+  if (!fs.existsSync(backup)) {
+    return emit({ ok: true, file: path.resolve(p), removed: null }, EXIT_OK);
+  }
+  let st;
+  try { st = fs.statSync(backup); } catch (e) { return emit(errJson('cleanup failed: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+  if (!st.isFile()) return emit(errJson('backup path is not a regular file: ' + backup, EXIT_ERROR), EXIT_ERROR);
+  try { fs.unlinkSync(backup); } catch (e) { return emit(errJson('cleanup failed: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+  return emit({ ok: true, file: path.resolve(p), removed: path.resolve(backup) }, EXIT_OK);
 }
 function existsOnPath(name) {
   const isWin = process.platform === 'win32';
@@ -993,6 +1005,7 @@ const USAGE = 'usage: enc <subcommand> [options]\n' +
   '  replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--no-backup] [--verbose] [--force]\n' +
   '  convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--no-backup]\n' +
   '  verify <file> [--encoding <enc>]\n' +
+  '  cleanup <file>\n' +
   '  selfcheck\n';
 function main(argv) {
   if (!argv.length) { process.stderr.write(USAGE); return EXIT_ERROR; }
@@ -1038,6 +1051,10 @@ function main(argv) {
     const o = takeOption(args, '--encoding', true); args = o.rest; const enc = o.value;
     if (args.length !== 1) return emit(errJson('verify requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
     return cmdVerify(args[0], enc);
+  }
+  if (sub === 'cleanup') {
+    if (args.length !== 1) return emit(errJson('cleanup requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
+    return cmdCleanup(args[0]);
   }
   if (sub === 'selfcheck') return cmdSelfcheck();
   return emit(errJson('unknown subcommand: ' + sub, EXIT_ERROR), EXIT_ERROR);
