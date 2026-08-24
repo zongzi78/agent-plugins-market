@@ -47,6 +47,20 @@ description: >
    - 放弃时：proposal.md 和 plan.md 均改为 `abandoned`
 2. 创建 `.ai/changes/archive/` 目录（如不存在）
 
+#### 🔴 归档前引用稳定性扫描（不可跳过）
+
+1. 确定当前 change 的短编号 `NNN` 与名称
+2. 扫描 `.ai/doc/**/*.md` 及项目根的持久交付物，**排除**：
+   `.ai/changes/**`、`.ai/project-log.md`
+3. 匹配模式：
+   - `change\s*NNN|Change\s*NNN`
+   - `\bNNN\s*(plan|apply|落地|后|新增|契约|依赖|兼容)`
+   - `(依赖\s*NNN|pre-NNN|post-NNN)`
+4. 命中 → 列出 `文件:行号`，作为 ⛔ 阻断项：
+   - 提示先运行 `/sdd-sync` 或人工修复；
+   - 或经 AskUserQuestion 允许“先归档后修复”，并在 project-log「待同步文档」登记
+5. 扫描结果与归档摘要一起输出
+
 #### 🔴 强制扫描（不可跳过）
 
 **必须使用工具实际列出 `.ai/changes/archive/` 目录内容。不可凭记忆或假设跳过此步。**
@@ -105,6 +119,8 @@ description: >
 - **归档前检查 plan.md 的 `## 文档变更` 章节**：如果有未处理的文档变更条目，归档意味着这些问题被永久留在文档中（直到下次 diagnose 发现）。务必确认 sync 已完成，或明确选择"不同步直接归档"。
 - **归档后 change 目录被移动**：其他 skill 中缓存的 change 路径将失效。归档应在 change 生命周期的最后执行。
 - **sync 异常退出可能导致 `.sync-backup/` 残留**：归档前检查并清理残留的备份目录。
+
+- **归档是制造悬垂引用的动作**：重命名前必须先扫描 `.ai/doc` 对当前 change 的引用；跳过扫描会让“change 00x”变成永久失效引用。
 
 ---
 

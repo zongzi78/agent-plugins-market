@@ -57,9 +57,16 @@ Subagent (general-purpose):
     - 文件职责是否清晰？
     - 是否遵循了项目既有的编码模式？
 
-    **注释：**
+    **注释与交付物引用：**
     - 是否有有意义的注释（解释设计意图、边界条件）？
     - 是否存在文档路径引用（.ai/doc/、.ai/changes/）？如有，这是违规。
+    - 如本次变更涉及文档/规格类交付物（含 `.ai/doc/0x-其他文档/`），
+      检查是否出现 `change 0xx` / `00x plan` / `00x apply` / `00x 落地/后/新增` /
+      `(依赖 00x)`；出现 → 按 supplement-rules §4.5 判为 Critical/Important。
+    - 如本次变更涉及文档/规格类交付物，同时检查外部权威引用：
+      是否出现 `BPA 手册 §`、裸 `faultscan`、裸工作区外相对路径；
+      已登记外部资源未带 ID → ⚠️ Important；
+      未登记外部资源被当行为权威 → ❌ Critical（要求标记缺注册或引导人工补 sources.md）。
 
     ## Part 3：系统约束检查
 
