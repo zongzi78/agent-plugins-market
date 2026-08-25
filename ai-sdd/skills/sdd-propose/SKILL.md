@@ -19,7 +19,8 @@ propose 的职责只有一件：把这个目的整理成 proposal.md 并登记�
 映射规则：
 - “设计/实现/编码/测试/同步/归档……”等动作词 → 写入 proposal 的「目标 / 范围 / 不包含」，**不是本阶段动作**；
 - “本次提案的目的/需求/为什么” → 写入「用户原始描述 / 背景与动机」；
-- 一切技术方案、实现策略、工作量 → 写入「待确认」（或留给 /sdd-explore 的 plan.md）。
+- 一切技术方案、实现策略、工作量 → 写入「待确认」（或留给 /sdd-explore 的 plan.md）；
+- 若用户提及**既有的设计/架构/方案/文档**将作为本 change 的输入 → 这是**入口信息**，在 proposal.md 写一行引用（`设计文档：xxx`）；无法确定时在「待确认」标注该缺口。本阶段仅登记引用，**不读取、不展开该设计内容、不写码**（读取与展开属 /sdd-explore 阶段）。
 
 **范围澄清输出（仅当用户消息含上述未来阶段词时）**：在回复开头用一句自然语言说明，例如：
 > “收到。你描述的 coding 属于该 change 的目标，我会记入提案；本次 sdd-propose 只创建提案，不读代码、不改代码。”
@@ -28,7 +29,7 @@ propose 的职责只有一件：把这个目的整理成 proposal.md 并登记�
 ## ⛔ 读写边界（Hard Boundary）
 
 ### 允许读取（白名单）
-- `.ai/doc/**/*.md` — 已有文档
+- `.ai/doc/**/*.md` — 已有文档（用于判断/核对，不用于展开设计引用；展开设计属 /sdd-explore）
 - `.ai/project-log.md` — 项目历史
 - `.ai/supplement-rules.md` — 行为准则 + 项目约束
 - `.ai/changes/` — 仅碰撞检测（扫描目录名）
@@ -58,6 +59,8 @@ propose 的职责只有一件：把这个目的整理成 proposal.md 并登记�
 
 ### 用户点名白名单外内容时（严格协议）
 
+> 区别于「设计引用入口」：用户**点名**某个具体文件/内容（如 `@.ai/changes/archive/xxx`、`test/` 文件、源码）时，才为核对权威版本而读 `.ai/doc/`；用户仅**提及**既有设计/方案作为输入（不点名具体文件）时只登记引用、不读。
+
 若用户要求参考白名单外内容（如 `@.ai/changes/archive/xxx`、`test/` 下文件、源码）：
 
 1. 先查 `.ai/doc/` 是否有权威版本（归档设计通常已同步进 `.ai/doc`）→ 有则读 `.ai/doc/` 版本；
@@ -67,7 +70,7 @@ propose 的职责只有一件：把这个目的整理成 proposal.md 并登记�
 ### 状态门禁
 
 `plan.md` status=draft（propose 产出）期间，任何对 `src/**`、`test/**`、配置文件的读取都是越界；
-只有 /sdd-explore 将 status 置为 `planned` 后才允许读取源码。
+进入 /sdd-explore 后由其按自身流程读取源码（无须等待置为 `planned`；propose 本身仍受上述边界约束）。
 
 ## 🚫 常见越界模式（Anti-Patterns）
 
@@ -115,6 +118,7 @@ propose 的职责只有一件：把这个目的整理成 proposal.md 并登记�
 1. 创建文件夹 `.ai/changes/NNN-名称/`（**不含日期前缀**，日期前缀仅归档时使用）
    - 示例：`.ai/changes/001-用户认证/`、`.ai/changes/003-fix-login-bug/`
 2. 以更专业、更精准的角度重写用户需求，生成 `proposal.md` — **Read [templates/proposal-template.md](templates/proposal-template.md) now and use it as the structure template.**
+   - 若用户提及**既有的设计/架构/方案/文档**将作为本 change 的输入，在此处写入一行引用（`设计文档：xxx`）；无法确定时在「待确认」标注该缺口。本阶段仅登记引用，不读取、不展开该设计内容、不写码（读取与展开属 /sdd-explore 阶段）。
 3. 创建空的 `plan.md`（占位，仅含 front matter，后续由 `/sdd-explore` 填充）
 
 ### 步骤 4：更新 project-log.md
@@ -140,7 +144,7 @@ propose 的职责只有一件：把这个目的整理成 proposal.md 并登记�
 | 状态 | 含义 | 设置时机 |
 |------|------|----------|
 | `draft` | 刚创建，待探索 | sdd-propose 创建时写入两份文件 |
-| `planned` | 方案已产出，待人类审阅 | sdd-explore 开始时写入两份文件 |
+| `planned` | 方案已产出，待人类审阅 | sdd-explore 产出 plan 并方案评审后写入两份文件 |
 | `approved` | 人类已确认方案，授权编码 | sdd-explore 收到人类口头确认后写入两份文件 |
 | `completed` | 已完成 | sdd-archive 归档时写入两份文件 |
 | `abandoned` | 已放弃 | sdd-archive 放弃时写入两份文件 |

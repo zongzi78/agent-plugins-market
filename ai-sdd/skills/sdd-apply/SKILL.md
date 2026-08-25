@@ -2,24 +2,24 @@
 name: sdd-apply
 description: >
   智能执行引擎：分析 plan.md 任务依赖，自动编排串行/并行执行，
-  subagent 执行独立任务 + 审查循环保障质量。
+  subagent 执行独立任务 + sdd-review 审查循环保障质量。
   触发词：执行、开始编码、实施、apply、开始开发、按计划实施、执行方案
 ---
 
-# sdd-apply（执行编码）
+# sdd-apply（执行实施）
 
 ## 定位
 
 执行以下工作流：
 
 1. 分析 plan.md 任务依赖，判定串行/并行执行顺序
-2. 调度 subagent 执行独立任务（implementer → reviewer → fixer 三角色）
-3. 通过审查循环保障每个任务的交付质量
+2. 调度 implementer subagent 执行独立任务，并把产物评审**委托**给 `sdd-review`
+3. 通过 `sdd-review` 的审查循环（引擎内部定义）保障每个任务的交付质量
 4. 输出结构化变更摘要供 sdd-sync 消费
 
 ## ⚠️ 铁律
 
-**只修改项目代码，绝不修改 .ai/doc/ 下的任何文件。**
+**只修改项目产物（代码 / 文档 / 配置等），绝不修改 .ai/doc/ 下的任何文件。**
 文档变更是 /sdd-sync 的专属职责。apply 阶段加载 .ai/doc/ 文件仅用于上下文参考。
 如实现过程中发现文档需要变更，记录到 plan.md 的「文档变更」表中，由 sync 阶段处理。
 
@@ -28,11 +28,11 @@ description: >
 1. 无活跃 change → 拒绝，提示"请先通过 /sdd-propose 创建 change"
 2. plan.md 的状态检查：
    a. plan.md 为空（仅占位 front matter）→ 拒绝，提示"请先通过 /sdd-explore 制定实施方案"
-   b. 读取 proposal.md 和 plan.md 的 status 字段
-   c. 两者不一致 → ⚠️ 警告（不阻塞），提示"proposal 与 plan 的 status 不一致，可能存在状态管理错误"
-   d. status 均 ≠ `approved` → ⚠️ 警告 + AskUserQuestion：
+   b. 读取 proposal.md 和 plan.md 的 status 字段（若 proposal.md 缺失 → ⚠️ 警告：change 目录异常，终止并提示检查 /sdd-propose 是否完整创建）
+   c. 两者不一致 → ⚠️ 警告：提示"proposal 与 plan 的 status 不一致，可能存在状态管理错误"，并**一律视为未获批准**，进入下方确认流程（不因任一为 approved 而放行）
+   d. status 不一致 或 均 ≠ `approved` → ⚠️ 警告 + AskUserQuestion（进入下方确认流程）：
       - 选项 1（推荐）：「回 explore 确认方案」— 取消本次 apply，用户确认计划后重新执行
-      - 选项 2：「强制执行」— 我确认方案无误，直接开始编码
+      - 选项 2：「强制执行（绕过审批）」— 我确认方案无误并显式授权本次放行；执行前将 proposal/plan 的 status 同步为 `approved` 并留痕
       - 选项 3：「取消」
       - 默认光标：选项 1
 3. 有多个活跃 change → 用 AskUserQuestion 让用户选择
@@ -52,16 +52,16 @@ description: >
 
 ## 执行流程
 
-### 步骤 1：加载与审阅（批判性检查清单）
+### 步骤 1：加载与核对（执行前就绪性检查，非质量评审）
 
 0. 读取 `.ai/supplement-rules.md`（如存在）：
    - §一（权限边界）→ 确认 implementer 决策范围
    - §二（强制暂停规则）→ 实现中遇到歧义时对照
-   - §四（文档操作红线）→ reviewer 检查依据
+   - §四（文档操作红线）→ sdd-review 检查依据
    - 项目特定约束节 → 分类处理：
-     - 提取所有 **ENV 约束**（启用=是）→ 注入 implementer 的 system prompt：
+     - 提取所有 **ENV 约束**（启用=是）→ 注入 implementer 的 prompt（见 implementer.md「规范约束」区块）：
        "环境约束（来自 .ai/supplement-rules.md，必须遵守）：..."
-     - 提取所有 **CI/AC/DP 约束**（启用=是）→ 传递给 reviewer（Part 3）
+     - 提取所有 **CI/AC/DP 约束**（启用=是）→ 交由 sdd-review 从 `.ai/supplement-rules.md` 读取并注入（apply 不重复传递；见「变更产物评审」）
 1. 读取 plan.md、proposal.md、相关 .ai/doc/ 文件（含 `04-问题与改进.md`，确认已知陷阱）
 2. 逐项检查：
    - [ ] plan.md 中每个文件路径存在，或有创建步骤
@@ -103,12 +103,12 @@ description: >
 3. 特殊情况：
    - 所有任务都必须串行 → 按 plan.md 原始顺序执行，不启动 subagent
    - 只有一个任务 → 直接执行，不启动 subagent
-   - 无并行编排 → 跳过自审，直接执行
+   - 无并行编排 → 跳过编排自查，直接执行
 
-4. 如有并行编排 → dispatch 一个 reviewer subagent 自审编排方案：
+4. 如有并行编排 → 对**编排方案**做一次自查（仅编排合理性，非产物评审，不走 sdd-review）：
    - 检查并行任务是否确实操作不重叠的文件集
    - 检查串行排序是否尊重了隐式依赖
-   - 自审通过 → 执行；发现风险 → 调整方案后执行
+   - 自查通过 → 执行；发现风险 → 调整方案后执行
 
 ### 步骤 3：逐批次执行
 
@@ -118,10 +118,9 @@ description: >
 
    **【串行批次 — 主 Agent 直接执行】**
    - 标记 in_progress → 严格按 plan 步骤执行 → 运行验证
-   - 为修改的代码编写规范注释（设计意图、边界条件），禁止写入文档路径引用
+   - 为修改的产物补充规范说明（设计意图、边界条件），禁止写入文档路径引用
    - 同步更新 plan.md checkbox（`- [ ]` → `- [x]`）
-   - 按照 `审查循环` 章节，dispatch reviewer subagent 审查 → 不通过则 fix → re-review
-   - 标记 completed
+   - 调用 `sdd-review` 对本次变更产物执行评审（见「变更产物评审（委托 sdd-review）」章节），通过后标记 completed
 
    **【并行批次 — subagent 执行】**
    - **Read [prompts/implementer.md](prompts/implementer.md) now** and use it as the template for constructing each implementer's prompt.
@@ -131,37 +130,41 @@ description: >
      · 任务上下文（1-2句，该任务在整个 change 中的位置）
      · 相关的 .ai/doc/ 规范摘要
      · plan.md 的全局约束（命名规范、技术栈限制等）
-   - 禁止在 prompt 中粘贴：会话历史、之前任务的执行摘要、无关代码
-   - **所有 implementer 完成后**，逐个 dispatch reviewer：
-     · 使用 `prompts/reviewer.md` 模板构造 prompt
-     · 审查 spec 合规性 + 代码质量
-     · 全部通过后，标记该批次所有任务 completed
+   - 禁止在 prompt 中粘贴：会话历史、之前任务的执行摘要、无关内容
+   - **所有 implementer 完成后**，调用 `sdd-review` 对本次变更产物执行评审（见「变更产物评审（委托 sdd-review）」章节）：
+     · 通过后，标记该批次所有任务 completed
      · 同步更新 plan.md checkbox
 
 3. 遵循 plan 中的 commit 节奏
 
 ### 步骤 4：最终验证
 
-1. 运行所有相关测试
-2. 确认构建通过
+1. 运行与产物相关的验证（测试 / 构建 / 文档校验，按产物类型选择）
+2. 确认验证通过
 3. 回顾 plan.md，确认所有 checkbox 已勾选
-4. **铁律：没有验证证据不得声称完成**，若工作空间不具备运行测试的条件，应当 review 一遍 plan.md 和对应的修改，确认每个任务都已经执行
-5. 每个验证结论附带具体证据（符号锚点 / 测试输出行 / diff 片段），不依赖主观判断词
+4. **铁律：没有验证证据不得声称完成**，若工作空间不具备运行验证的条件，应当**核对** plan.md 和对应的修改，确认每个任务都已执行（此为任务完成度核验，**非** sdd-review 质量评审）
+5. 每个验证结论附带具体证据（符号锚点 / 测试输出行 / diff 片段 / 文档章节），不依赖主观判断词
 
 ### 步骤 5：输出结构化变更摘要
 
-执行完成后，输出以下摘要（供 sdd-sync 和 sdd-archive 使用）：
+执行完成后：
+1. 确认 plan.md 全部 checkbox 已勾选。
+2. 将本次 sdd-review 输出的「评审记录」（含档位/轮数/问题清单/结果）追加到 plan.md 末尾。
+3. 输出以下摘要（供 sdd-sync 和 sdd-archive 使用）：
 
 ```
 ## 变更摘要（apply 生成）
 
-改动的符号:
+改动的符号 / 条目:
   - 修改: ClassName::methodName() — 简要描述变更
   - 新增: ClassName::newMethod()
   - 删除: ClassName::removedMethod()
+  - 修改: docs/guide.md §运行说明 — 行为描述变更（文档产物示例；`.ai/doc` 变更由 sdd-sync 处理）
   - 新增文件: path/to/new/file
   - 删除文件: path/to/removed/file
 ```
+
+> 代码产物用符号锚点；文档/配置产物用文件路径 + 章节/条目。
 
 此摘要追加到 plan.md 末尾。
 
@@ -169,84 +172,64 @@ description: >
 
 ---
 
-## 审查循环
+## 变更产物评审（委托 sdd-review）
 
-每个任务完成后（无论串行还是并行）执行审查循环：
+每个任务/批次完成后（无论串行还是并行），将评审**委托**给 sdd-review：调用 `sdd-review(artifact=变更产物, criteria=产物评审标准, depth=声明/默认中杯, artifact_path=<变更文件/产物列表>, workdir=项目根)`。
 
-### Reviewer 审查
+apply 只负责：提供 `产物评审标准`（见下）；消费 sdd-review 的「评审记录」结果。sdd-review 内部的循环、台账、多轮回归、reviewer 调度由该引擎自行处理，修复由主 agent 在循环内执行，apply 不介入。
 
-**Read [prompts/reviewer.md](prompts/reviewer.md) now** and use it as the template for constructing each reviewer's prompt.
+评审由 sdd-review 派发的**独立 reviewer subagent** 完成（评审独立性铁律），apply 自身不做 review、不自审。
 
-使用该模板 dispatch reviewer subagent，审查两项：
-- **Spec 合规**：是否完整实现了 plan.md 中该任务的全部要求
-- **代码质量**：逻辑是否正确、边界条件处理、是否符合项目规范、有无 YAGNI
+### 产物评审标准（apply 提供）
 
-### 审查结果处理
+1. **spec 合规**：是否完整实现 plan 中该任务全部要求。
+2. **质量**：逻辑/内容正确、边界条件、符合项目规范；对代码类产物检查无 YAGNI，对文档/配置类产物检查内容准确性与必要性。
+3. **约束合规**：是否违反 `.ai/supplement-rules.md` §一/§四 及 ENV/CI/AC/DP 约束。
+4. **红线**：绝不越权修改 `.ai/doc/`（发现需要改 → 记录到 plan.md 的「文档变更」，交 sync）。
+
+> 约束注入由 sdd-review 从 `.ai/supplement-rules.md` 读取并注入。
+
+### 评审结果处理
 
 | 结果 | 处理 |
 |------|------|
-| 通过 | 任务完成，标记 completed |
-| Critical/Important 问题 | dispatch fix subagent → re-review |
+| PASS | 任务完成，标记 completed |
 | Minor 问题 | 记录到 plan.md 该任务备注中，不阻塞流程 |
-| 3轮不通过 | 暂停，报告人类，质疑方案本身 |
+| 暂停 / ESCALATE_TO_HUMAN（达到评审上限或发现矛盾） | 暂停报告人类，质疑方案本身 |
 
-### Reviewer Prompt 构造
+### 附随改动豁免
 
-- 提供与 implementer 相同的任务原文作为验收标准
-- 指明从哪里获取 diff
-- 禁止预判问题严重程度
-- 禁止指示 reviewer 忽略某类问题
-- 最终全分支审查（如需要）是 Code Review 技能的责任，reviewer 只审当前任务
+遵循 sdd-review 的附随改动豁免判定（见 sdd-review「深度档位 → 附随改动豁免」）。满足豁免（无可评审内容的附带改动）时可无需调用 sdd-review；但**交付物本身**为文档/配置等时**不得豁免**，一律默认中杯。
 
-### Fixer Dispatch
-
-**Read [prompts/fixer.md](prompts/fixer.md) now** and use it as the template for constructing each fixer's prompt.
-
-- 将所有 Critical/Important 问题一并交给 fixer（不逐条派发）
-- fixer 必须重跑相关测试并报告结果
-- 修复后重新 dispatch reviewer 审查
-
-### 跳过审查
-
-以下情况可以跳过 reviewer，implementer 完成后直接标记完成：
-- 纯文档修改（如更新 README.md、注释修正）
-- 配置文件单行修改（如修改版本号、端口号）
-- **同时满足以下三个硬性条件**：
-  - (a) 变更行数 < 10 行（以 subagent 返回的 diff stat 为准，非人工估计）
-  - (b) 变更仅涉及**单个文件**
-  - (c) 变更类型为以下之一：字面量替换 / 类型修正 / 错误码新增 / 日志补充 / 断言添加
-- 连续 3 个同类型任务审查均一次通过 → 后续同类型可降级为抽查
-
-**硬性限制**：
-- **累计阈值**：同一 change 内所有 <10 行的子任务累计变更行数 ≥50 行时，必须执行至少一次完整审查
-- **同文件限制**：同一文件的变更累计 ≥3 次（即使每次都 <10 行），后续该文件的变更不能跳过审查
-- **逻辑任务判定**：如果 plan.md 中多个 <10 行的任务属于同一逻辑功能，视为一个逻辑任务，累计行数判定
+> **单向严格**：评审深度只能向上（大杯/超大杯），不得降级或跳过；要降级须显式询问人类。
+> 取消原「按大小跳过」逻辑（<10 行 / 单文件 / 特定类型）。只保留上述附随改动豁免。
 
 ---
 
 ## Subagent 调度规范
 
-### 三种角色
+### 角色
+
+apply 调度子代理只负责**实现**（implementer）。评审（reviewer 调度、循环、台账、多轮回归）由 sdd-review 引擎内部处理，修复由主 agent 在循环内执行，不在 apply 描述。
 
 | 角色 | 职责 | 输入 | 产出 |
 |------|------|------|------|
-| implementer | 按 plan 步骤实现代码 | 任务原文 + 相关文件路径 + 全局约束 | 代码变更 + 自验证结果 |
-| reviewer | 审查 spec 合规 + 代码质量 | 任务原文 + implementer 的 diff | 通过/不通过 + 问题清单 |
-| fixer | 修复 reviewer 发现的问题 | 问题清单 + 原任务原文 | 修复 + 重跑测试结果 |
+| implementer | 按 plan 步骤实现产物 | 任务原文 + 相关文件路径 + 全局约束 | 产物变更 + 自验证结果 |
 
 ### 模型选择
 
 - **implementer**：使用当前会话模型。如任务涉及复杂架构判断，考虑使用更强模型
-- **reviewer / fixer**：与 implementer 同级或略低，审查是校对工作，不改变设计
 
 ### Implementer 状态处理
 
 | 状态 | 处理方式 |
 |------|---------|
-| 完成 | 继续 reviewer 审查 |
-| 完成但有疑虑 | 先读 concerns，涉及正确性/范围则处理后再审查；仅是观察则记录并继续审查 |
+| 完成 | 进入 sdd-review 评审 |
+| 完成但有疑虑 | 先读 concerns，涉及正确性/范围则处理后再评审；仅是观察则记录并继续评审 |
 | 需要更多上下文 | 补充信息，重新 dispatch |
-| 阻塞 | 1) 补充上下文重试 2) 拆小任务 3) 报告人类 |
+| BLOCKED | 1) 补充上下文重试 2) 拆小任务 3) 报告人类 |
+
+> BLOCKED：implementer 无法实现/无法推进（如遇到阻碍、缺少必要信息），须说明原因；与 sdd-review 中 reviewer 的 BLOCKED（无法评审）语义一致——均为「无法继续、须说明原因」。
 
 ---
 
@@ -254,7 +237,7 @@ description: >
 
 - **连续执行**：不要在每个任务间询问"是否继续"。人类调用 sdd-apply = 授权执行全部任务。只在遇到阻塞、歧义、或全部完成时暂停
 - **最小旁白**：任务间不要输出进度摘要或反思，TodoWrite 和 plan.md checkbox 已经记录了状态
-- **冲突即停**：发现 plan 描述与代码现实矛盾时，不自行裁决，立即报告
+- **冲突即停**：发现 plan 描述与产物现实矛盾时，不自行裁决，立即报告
 - **禁止并行操作同一文件**：即使编排方案将两个任务标记为并行，如果它们操作同一文件的不同区域，降级为串行执行
 - **绝不碰 .ai/doc/**：即使发现文档中有明显的笔误或过时信息，也不在 apply 阶段修改。记录到 plan.md → 由 sync 处理。apply 修改文档 = 数据不一致
 
@@ -263,7 +246,7 @@ description: >
 ## 💡 常见陷阱（Gotchas）
 
 - **并行任务共享隐式约定**：implementer 只看到自己的任务 prompt，看不到其他并行任务的上下文。如果两个任务共享隐式约定（如相同的工具函数签名），implementer 可能做出冲突的决策。编排时优先将可能共享约定的任务串行化。
-- **跳过审查的累计效应**：3 个 <10 行的变更合并后可能引入复杂的交互 bug。如果同模块连续有多个跳过审查的任务，应降级为抽查模式而非继续跳过。
+- **附随改动豁免不可误用**：豁免仅限无语义的附随改动（纯注释/空行/格式/非交付性说明）；涉及可执行逻辑或作为交付内容时一律按默认中杯走 sdd-review，不可用行数或文件数做依据。
 - **subagent prompt 膨胀**：容易因为想给 implementer "更多上下文"而粘贴会话历史——这会导致 token 爆炸。严格遵循模板：只传任务原文 + 1-2 句上下文 + 全局约束。
 - **变更摘要遗漏**：implementer 可能在实现 task A 时"顺便修了" task B 范围的小问题。务必在步骤 5 变更摘要中交叉检查实际变更（有 git 用 `git diff`；无 git 用快照 diff（`.ai/backups/`）），确保遗漏的变更被记录。
 
@@ -274,8 +257,8 @@ description: >
 3. **遇到错误/阻塞** → 报告等待指导
 4. **用户中断**
 5. **连续验证失败3次** → 停止，质疑方案本身
-6. **发现代码中已存在与 plan.md 矛盾的设计** → 暂停，报告具体矛盾点
-7. **审查循环3轮未通过** → 暂停，质疑方案本身
+6. **发现产物中已存在与 plan.md 矛盾的设计** → 暂停，报告具体矛盾点
+7. **sdd-review 返回暂停 / ESCALATE_TO_HUMAN（达到评审上限或发现矛盾）** → 暂停，质疑方案本身
 8. **subagent 连续返回 BLOCKED** → 暂停，报告具体阻塞原因
 
 ---

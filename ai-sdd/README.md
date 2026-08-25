@@ -24,6 +24,7 @@ AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件。
 | sdd-propose | `/sdd-propose` | 创建 change（需求入口） |
 | sdd-explore | `/sdd-explore` | 深度探索 + 制定实施方案 |
 | sdd-apply | `/sdd-apply` | 智能执行引擎：自动编排串行/并行执行 + 审查循环 |
+| sdd-review | `/sdd-review` | 质量循环引擎：独立 reviewer subagent 评审 + 主 agent 循环内修复 |
 | sdd-sync | `/sdd-sync` | 设计变更同步回 `.ai/doc/` |
 | sdd-archive | `/sdd-archive` | 归档完成的 change |
 
@@ -37,13 +38,13 @@ AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件。
 
 3. 开始开发：`/sdd-propose 帮我实现 XXX 功能`
 
-4. 按引导走完工作流：`/sdd-propose → /sdd-explore → /sdd-apply → /sdd-sync → /sdd-archive`
+4. 按引导走完工作流：`/sdd-propose → /sdd-explore → /sdd-review → /sdd-apply → /sdd-sync → /sdd-archive`
 
 ## 工作流
 
 ```
-/sdd-propose → /sdd-explore → /sdd-apply → /sdd-sync → /sdd-archive
-(创建)         (探索)         (执行)        (同步)       (归档)
+/sdd-propose → /sdd-explore → /sdd-review → /sdd-apply → /sdd-review → /sdd-sync → /sdd-archive
+(创建)         (探索)         (评审)        (执行)        (评审)        (同步)       (归档)
 ```
 
 ## 什么是 AI-SDD

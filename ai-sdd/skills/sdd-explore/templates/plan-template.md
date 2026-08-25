@@ -6,7 +6,7 @@ created: YYYY-MM-DD
 status: draft
 # status 可用值：draft | planned | approved | completed | abandoned
 # - draft: sdd-propose 创建占位时写入
-# - planned: sdd-explore 开始探索时写入，方案已产出但尚未经人类确认
+# - planned: sdd-explore 产出 plan 并方案评审后写入，方案已产出但尚未经人类确认
 # - approved: 人类确认方案可行，授权 sdd-apply 执行
 # - completed: sdd-archive 归档时写入
 # - abandoned: sdd-archive 放弃时写入
@@ -19,11 +19,11 @@ status: draft
 
 ## 整体架构
 
-​```mermaid
+```mermaid
 graph TD
     A["现有模块"] --> B["新增模块"]
     B --> C["修改模块"]
-​```
+```
 
 ## 涉及文件
 
@@ -57,6 +57,10 @@ graph TD
 | 03-详细设计/[模块] | [接口变更/新增/无] | [确认/待sync确认] |
 | 04-问题与改进 | [新增问题/解决问题/无] | [确认/待sync确认] |
 
+## 文档变更
+
+（apply 期如发现需变更 `.ai/doc/` 文档时在此记录，供 sdd-sync 参考；无则留空）
+
 ---
 
 ## 任务清单
@@ -69,9 +73,9 @@ graph TD
 - 测试：`tests/path/to/test`
 
 - [ ] **步骤 1：[做什么]**
-  ​```python
+  ```python
   # 伪代码 / 函数签名 / 数据结构
-  ​```
+  ```
 
 - [ ] **步骤 2：验证**
   运行：`[命令]`
