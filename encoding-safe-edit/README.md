@@ -19,11 +19,17 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 & $enc replace file.txt --from-file ops.json --dry-run
 & $enc replace file.txt --from-file ops.json
 
-# 3) 事后验证
+# 写后自动验证，damaged:false 则自动清理 .orig，无需手动 cleanup
+# 需要保留快照用于人工确认时加 --keep-backup：
+#   & $enc replace file.txt --from-file ops.json --keep-backup
+
+# 3)（可选）事后复核
 & $enc verify file.txt
 
-# 4) 确认无误后清理 .orig 快照（避免残留）
-& $enc cleanup file.txt
+# 4)（维护）清理历史/孤儿快照
+& $enc gc <dir>
+
+# 完整命令面见：& $enc --help   （--no-backup 已移除，不会出现在帮助中）
 ```
 
 ## 子命令速查
@@ -32,9 +38,12 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 |--------|------|
 | `detect` | 输出编码、置信度、BOM、行尾、是否可安全直改 |
 | `read` | 按原编码解码，以 UTF-8 输出，不修改原文件 |
-| `replace` | 按原编码搜索替换，保留原编码/BOM/行尾，自动备份 `.orig` |
-| `convert` | 转码，支持 BOM 与行尾策略 |
-| `verify` | 扫描 U+FFFD 与转码痕迹，检测损坏 |
+| `replace` | 按原编码搜索替换，保留原编码/BOM/行尾；默认事务化：写后验证通过自动清理 `.orig`，`--keep-backup` 保留快照 |
+| `convert` | 转码，支持 BOM 与行尾策略；默认事务化：写后验证通过自动清理 `.orig` |
+| `verify` | 扫描 U+FFFD 与转码痕迹，检测损坏；`suggestedAction` 按 `.orig` 是否存在条件化 |
+| `cleanup` | 维护：删除 `<file>.orig` 单步撤销快照 |
+| `gc` | 维护：清理孤儿 `.orig`（target 缺失），`--all` 递归全删 |
+| `help` | `enc --help`/`enc help <sub>`；`--no-backup` 已移除 |
 | `selfcheck` | 检查可用运行时 |
 
 ## 来源与许可证

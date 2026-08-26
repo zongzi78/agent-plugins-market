@@ -7,6 +7,18 @@ description: 确保对任意文本文件的读取、编辑、写入不破坏原�
 
 在读取、修改、写入任何文本文件之前，先判断文件编码；detect 未判定可安全直改（非 UTF-8 / 带 BOM / 双合法 / 未知）的文件一律走本 skill 的 `enc` 工具，禁止用 Agent 原生写工具直接改。目标：对 GBK/GB18030/UTF-8/UTF-16 等编码的文件，保证"检测→解码→编辑→同编码写回"全程不破坏原始字节。
 
+## 快速上手（TL;DR）
+
+改任意文本文件：
+
+1. `enc detect <file>`：看它的编码 / 是否可安全直改。
+2. 写一个 UTF-8 无 BOM 的 `ops.json`：`[{"search":"...","replace":"...","label":"..."}]`。
+3. `enc replace <file> --from-file ops.json --dry-run` 预览；没问题再执行 `enc replace <file> --from-file ops.json`。
+4. 工具会自动验证并清理 `.orig` 快照，**无需手动 cleanup**；需要保留快照用于人工确认时用 `--keep-backup`。
+5. 转码用 `enc convert <file> --to <enc>`；疑难细节见下方与 `references/`。
+
+> 完整命令面见 `enc --help`；深度（BOM/行尾、置信度、Gotchas）见 `references/`。
+
 ## 何时使用（触发）
 
 - 读取、修改或写入任何文本文件之前（编码可能非 UTF-8，或看似 UTF-8 但中文 Windows 默认 ANSI(GBK) 写入会破坏它）。
@@ -16,11 +28,12 @@ description: 确保对任意文本文件的读取、编辑、写入不破坏原�
 - 在中文 Windows 环境读取或修改 .ini / .conf / .properties / 历史遗留文档。
 - 需要把文件转成另一种编码（含 BOM / 行尾策略）。
 
-## 关键约束（先读，尾部会再次重申）
+## 关键约束
 
 - **任何写操作前先 `enc detect`**；detect 未判定 `safeToEditDirectly: true`（非 UTF-8 / 带 BOM / 双合法 / 未知）时，写一律用 `enc replace` / `enc convert`。
 - **fail-closed**：任一操作失败（编码未知、解码失败、编码失败、op 未匹配且未加 `--force`）→ **不写盘**，按退出码返回。
-- **默认自动备份（单步撤销快照）**：每次写回前生成 `<file>.orig`（可用 `--no-backup` 关闭；不依赖 git）。**覆盖式**：只保留最近一次写前状态，不是历史备份；确认无误后 `enc cleanup <file>` 删除快照，不残留。
+- **默认自动备份 + 写后自动清理（单步撤销快照）**：每次写回前生成 `<file>.orig`（不依赖 git）；写后工具自动验证，`damaged:false` 则删除 `.orig`（**无需手动 cleanup**）。`--keep-backup` 可保留快照。**覆盖式**：只保留最近一次写前状态，不是历史备份。
+- **`--no-backup` 已移除**：写路径恒先备份（底线「不得关闭备份」）；注入该参数 fail-closed exit 1。
 - **中文内容必须走文件**：含中文的 ops 用 `--from-file <ops.json>`，不要把中文直接塞进命令行参数（Windows 命令行会破坏中文）。
 - **写回保留原编码、原 BOM、原行尾**（mixed 行尾逐行保留）；带 BOM 文件禁止原生编辑。
 - 检测有歧义（ASCII / 双合法 / NUL-heavy / unknown）时**不许静默猜测**：看 detect 输出的 `decodeHints` 与项目约束（项目规则中声明的编码约定）决定，必要时用 `--encoding` 显式指定。
@@ -56,7 +69,7 @@ Read `references/detection-notes.md` 了解置信度与歧义细节（只需在�
 
 1. **detect**：`enc detect <file>`，读取 JSON 的 `encoding` / `confidence` / `bom` / `lineEnding` / `safeToEditDirectly` / `suggestedAction`。
 2. **决定编辑方式**：
-   - `safeToEditDirectly: true`（utf-8/high 无 BOM 或 ascii/low）且项目允许 → 可用原生编辑；否则进入 3。
+   - `safeToEditDirectly: true`（utf-8/high 无 BOM 或 ascii/low）是**编码可安全处理**的事实，**不等于授权原生编辑**；是否可用原生编辑还需「纯 ASCII」或「已显式控制工具编码」+ 项目约束放行。否则进入 3。
    - `encoding: unknown` → **禁止直接写**，按 `decodeHints` 或项目约束用 `--encoding` 显式指定后重试。
    - `confidence: medium`（双合法 / NUL-heavy）→ 看提示与项目约束；NUL-heavy 必须显式 `--encoding utf-16-le/be` 才能写。
 3. **read（需要看内容时）**：`enc read <file> [--out <临时文件>]`。输出为 UTF-8；用 `--out` 写临时文件再读，规避控制台乱码。中文环境必用 `--out` 或直接读 stdout 字节。
@@ -67,7 +80,7 @@ Read `references/detection-notes.md` 了解置信度与歧义细节（只需在�
    ops 格式：`[{"search":"...","replace":"...","label":"..."}]`；search/replace 按文件当前编码解释（Agent 以 UTF-8 书写，工具负责编码）。
 5. **convert（转码）**：`enc convert <file> --to <目标编码> [--from <源编码>] [--bom add|remove|keep] [--line-ending keep|crlf|lf]`。源编码不在自动判定集（如 big5）时必须 `--from` 显式指定。Read `references/encoding-matrix.md` 了解各编码与平台默认行为差异（BOM/行尾策略拿不准时）。
 6. **verify（事后验证）**：`enc verify <file>`。确认 `damaged: false`（无 U+FFFD、无转码痕迹）；若 `damaged: true`，从 `<file>.orig` 恢复并重新编辑。
-7. **cleanup（收尾）**：`enc cleanup <file>`。verify 确认 `damaged: false` 后删除 `.orig` 快照，避免残留；若还需继续编辑可延后到全部改完再清理。
+7. **（可选）cleanup**：默认写后自动清理，**无需手动步骤**；仅在使用 `--keep-backup`、或 `damaged:true` 恢复后需要清理时用 `enc cleanup <file>`。
 
 ## 子命令速查
 
@@ -85,17 +98,19 @@ enc read <file> [--out <utf8-path>] [--encoding <enc>]
 
 ### replace
 ```bash
-enc replace <file> <ops-json> [--encoding <enc>] [--dry-run] [--no-backup] [--verbose] [--force]
-enc replace <file> --from-file <ops-file> [--encoding <enc>] [--dry-run] [--no-backup] [--verbose] [--force]
+enc replace <file> <ops-json> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
+enc replace <file> --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
 ```
+- **事务化默认**：写前备份 → 写 → 内部 verify → `damaged:false` 自动删 `.orig`；`--keep-backup` 保留快照。
 - search/replace 与文件**当前编码**一致；写回保留原编码 / BOM / 行尾。
 - 任一 op 未匹配 → 默认不写盘、退出码 2；`--force` 才写（且会在 warnings 里暴露未匹配项）。
 - 先 `--dry-run` 预览，再真正写盘。
 
 ### convert
 ```bash
-enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--no-backup]
+enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]
 ```
+- **事务化默认**同 replace：按目标编码内部验证通过后自动删 `.orig`；`--keep-backup` 保留。
 - `--to` / `--from` 支持 Python codec 注册表内的编码名（utf-8 / utf-16-le / utf-16-be / gbk / gb18030 / big5 / shift_jis / euc_jp / euc_kr / cp1252 等）。
 - `--bom keep` = 保持"是否带 BOM"的状态（带则写目标编码的 BOM，不带则不写）；GBK 等无 BOM 概念的编码不产生 BOM 字节。
 - 目标编码无法表示某字符、或源编码无法确定/无法严格解码 → 不写盘、退出码 1。
@@ -120,7 +135,21 @@ enc verify <file> [--encoding <enc>]
 ```bash
 enc cleanup <file>
 ```
-删除写操作生成的 `<file>.orig` 单步撤销快照。`.orig` 存在且为常规文件 → 删除并输出 `removed`；不存在 → 幂等返回 `removed: null`（退出码 0）；`<file>` 非常规文件或 `.orig` 是目录 → 不删除、退出码 1。
+维护命令：删除写操作生成的 `<file>.orig` 单步撤销快照；`.orig` 不存在 → 幂等 `removed:null`。
+
+### gc
+```bash
+enc gc <dir> [--all]
+```
+维护命令：默认删除孤儿 `.orig`（target 已缺失）；`--all` 递归删除目录下全部 `*.orig`。输出 `{"ok":true,"removed":[...],"kept":[...],"dir":...}`。
+
+### help
+```bash
+enc --help | enc -h
+enc help <subcommand>
+enc <subcommand> --help
+```
+`--help`/`-h` 打印完整子命令列表到 stdout、exit 0；`help <sub>`/`<sub> --help` 打印单命令用法。`--no-backup` 已移除，不会出现在帮助中。
 
 ### selfcheck
 ```bash
@@ -155,16 +184,11 @@ enc selfcheck
 - **带 BOM 文件**：`safeToEditDirectly: false`，一律走 `enc replace`（自动保留 BOM）。
 - **Windows 命令行/管道会破坏中文**：中文 ops 用 `--from-file`；不要依赖把中文作为命令行参数传入。
 - **UTF-32 不支持**：detect 归 unknown；用显式 `--encoding` 也没有 UTF-32 解码路径，请先转码再处理。
-- **`.orig` 是单步撤销快照**：连续多次写会覆盖旧快照；确认无误后 `enc cleanup <file>` 删除，避免残留。目标在 git 仓库时，删除前建议把 `*.orig` 加入 `.gitignore` 防误提交（快照只作写后即时的撤销手段，不是历史备份）。
+- **`.orig` 是单步撤销快照（默认自动清理）**：写后内部验证通过会删除 `.orig`；连续多次写会覆盖旧快照。需要人工确认/语义回退时用 `--keep-backup`。目标在 git 仓库时建议把 `*.orig` 加入 `.gitignore`（快照只作写后即时撤销手段，非历史备份）。
+- **`--no-backup` 已移除**：写路径恒先备份；传入即 fail-closed exit 1（与全局约束底线一致）。
+- **verify 的 `suggestedAction` 是条件化**：`damaged:false` 时以 `no damage detected; safe to proceed` 开头；仅当 `<file>.orig` 存在时才提示 `enc cleanup`。
+- **`safeToEditDirectly` 是两层**：`true` 仅表示编码默认可安全处理（纯 ASCII 或 utf-8/high 无 BOM）；是否允许原生编辑还需「纯 ASCII」或「已显式控制工具编码」+ 约束层放行。
 - 性能：常规文本文件（<10MB）秒级；>50MB 不在目标范围。
-
-## 关键约束（尾部重申，与头部一致）
-
-- 写前 `enc detect`；`safeToEditDirectly: true` 之外一律走 `enc replace` / `enc convert`，禁止原生写工具直接改。
-- fail-closed：任何失败不写盘（除非显式 `--force` 且已确认未匹配项）。
-- 默认自动备份 `<file>.orig`（单步撤销快照，覆盖式）；确认后 `enc cleanup <file>` 清理。
-- 写回保留原编码 / 原 BOM / 原行尾；带 BOM 文件禁止原生编辑。
-- 中文 ops 走 `--from-file`；不静默猜测编码；项目默认编码以项目约束为准。
 
 ## 参考（深度，按需阅读）
 

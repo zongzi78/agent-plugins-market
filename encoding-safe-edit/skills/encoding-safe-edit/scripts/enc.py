@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """encoding-safe-edit skill 主实现（Python，首选运行时）。
 
-子命令：detect / read / replace / convert / verify / selfcheck
+子命令：detect / read / replace / convert / verify / cleanup / gc / selfcheck
 安全语义：fail-closed、默认自动备份、dry-run、原子写、BOM/行尾保留、日志脱敏、不接 shell。
 stdout 强制 UTF-8；错误对象 schema：{"ok":false,"error":str,"exitCode":int,"hint":str|null}。
 """
@@ -294,7 +294,7 @@ def detect_file(path):
             d["suggestedAction"] = "use replace/convert tool with explicit --encoding"
         else:
             d["safeToEditDirectly"] = True
-            d["suggestedAction"] = "native edit allowed if project permits"
+            d["suggestedAction"] = "encoding determinable; native edit only if pure ASCII or tool encoding explicitly controlled; otherwise use enc"
         if data == b"":
             d["lineEnding"] = "unknown"
         else:
@@ -314,7 +314,7 @@ def detect_file(path):
         else:
             d["confidence"] = "high"
             d["safeToEditDirectly"] = True
-            d["suggestedAction"] = "native edit allowed if project permits"
+            d["suggestedAction"] = "encoding determinable; native edit only if pure ASCII or tool encoding explicitly controlled; otherwise use enc"
         d["lineEnding"] = detect_line_ending(data.decode("utf-8", errors="strict"))
         d["fffdCount"] = data.decode("utf-8", errors="strict").count("\ufffd")
         if nul_heavy:
@@ -521,7 +521,7 @@ def cmd_read(path, out, explicit):
     return EXIT_OK
 
 
-def cmd_replace(path, ops_arg, from_file, explicit, dry_run, no_backup, verbose, force):
+def cmd_replace(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose, force):
     if not is_regular_file(path):
         return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
     ops, oerr = load_ops(ops_arg, from_file)
@@ -560,21 +560,23 @@ def cmd_replace(path, ops_arg, from_file, explicit, dry_run, no_backup, verbose,
         for i, o in enumerate(ops):
             log("[verbose] op%d %r -> %r count=%d" % (i + 1, redact(o["search"]), redact(o["replace"]), counts[i]))
     if len(ops) == 0:
-        return emit({"ok": True, "applied": 0, "matches": [], "backup": None, "dryRun": False, "warnings": []}, EXIT_OK)
+        return emit({"ok": True, "applied": 0, "matches": [], "backup": None, "cleanup": None,
+                     "dryRun": False, "warnings": []}, EXIT_OK)
     try:
-        write_with_backup(path, payload, backup=not no_backup)
+        write_with_backup(path, payload, backup=True)
     except OSError as e:
         return emit(err_json("write failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+    backup_final, cleanup, damaged = post_write_cleanup(path, new_text, out_enc, keep_backup)
     if verbose:
-        log("[verbose] wrote %d bytes; backup=%s" % (len(payload), (path + ".orig") if not no_backup else None))
+        log("[verbose] wrote %d bytes; backup=%s; cleanup=%s" % (len(payload), backup_final, cleanup))
     warnings = [{"label": l} for l in unmatched] if unmatched else []
     return emit({"ok": True, "applied": sum(1 for c in counts if c > 0),
                  "matches": [{"label": ops[i]["label"], "count": counts[i]} for i in range(len(ops))],
-                 "backup": (path + ".orig") if not no_backup else None,
+                 "backup": backup_final, "cleanup": cleanup, "damaged": damaged,
                  "dryRun": False, "warnings": warnings}, EXIT_UNMATCHED if unmatched else EXIT_OK)
 
 
-def cmd_convert(path, to, from_enc, bom_policy, line_ending, dry_run, no_backup):
+def cmd_convert(path, to, from_enc, bom_policy, line_ending, dry_run, keep_backup):
     if not is_regular_file(path):
         return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
     if not to:
@@ -622,31 +624,20 @@ def cmd_convert(path, to, from_enc, bom_policy, line_ending, dry_run, no_backup)
         return emit(err_json("strict encode failed as %s (fail-closed; nothing written)" % to, EXIT_ERROR), EXIT_ERROR)
     if dry_run:
         return emit({"ok": True, "dryRun": True, "from": src_enc, "to": to, "bom": target_bom,
-                     "lineEnding": line_ending, "backup": None}, EXIT_OK)
+                     "lineEnding": line_ending, "backup": None, "cleanup": None}, EXIT_OK)
     try:
-        write_with_backup(path, payload, backup=not no_backup)
+        write_with_backup(path, payload, backup=True)
     except OSError as e:
         return emit(err_json("write failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+    backup_final, cleanup, damaged = post_write_cleanup(path, text, to, keep_backup)
     return emit({"ok": True, "from": src_enc, "to": to, "bom": target_bom,
                  "lineEnding": line_ending, "dryRun": False,
-                 "backup": (path + ".orig") if not no_backup else None}, EXIT_OK)
+                 "backup": backup_final, "cleanup": cleanup, "damaged": damaged}, EXIT_OK)
 
 
-def cmd_verify(path, explicit):
-    if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
-    try:
-        data = read_bytes(path)
-    except OSError as e:
-        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
-    det = detect_file(path)
-    enc = explicit or det["encoding"]
-    if enc == "unknown":
-        return emit(err_json("unknown encoding; cannot verify", EXIT_ERROR, "use --encoding"), EXIT_ERROR)
-    res = decode_with_bom(data, enc)
-    if res is None:
-        return emit(err_json("strict decode failed as %s; cannot verify" % enc, EXIT_ERROR), EXIT_ERROR)
-    text, _ = res
+
+def verify_text(text, encoding):
+    """纯函数：对解码后文本做损坏判定（与 cmd_verify 口径一致，供 verify / 写后事务共用）。"""
     fffd_count = text.count("\ufffd")
     fffd_samples = []
     if fffd_count:
@@ -668,13 +659,56 @@ def cmd_verify(path, explicit):
         if cc:
             mojibake[pat] = cc
     damaged = fffd_count > 0 or bool(mojibake) or suspicious_q
-    if damaged:
+    return {"fffdCount": fffd_count, "fffdSamples": fffd_samples, "qCount": q_count,
+            "qRatio": round(q_ratio, 6), "suspiciousQ": suspicious_q,
+            "mojibakePatterns": mojibake, "damaged": damaged}
+
+
+def post_write_cleanup(path, text, enc, keep_backup):
+    """写后处理：决定 .orig 终态。写路径恒先备份；keep_backup 保留；否则按 verify_text 自动清。
+    返回 (backup_final, cleanup, damaged)。cleanup ∈ removed / retained；damaged 表示是否因内部验证检测到损坏而保留（keep_backup 自愿保留时恒为 False）。"""
+    backup = path + ".orig"
+    if keep_backup:
+        return backup, "retained", False
+    v = verify_text(text, enc)
+    if v["damaged"]:
+        return backup, "retained", True
+    if os.path.isfile(backup):
+        try:
+            os.remove(backup)
+        except OSError:
+            return backup, "retained", True
+    return None, "removed", False
+
+def cmd_verify(path, explicit):
+    if not is_regular_file(path):
+        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+    try:
+        data = read_bytes(path)
+    except OSError as e:
+        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
+    det = detect_file(path)
+    enc = explicit or det["encoding"]
+    if enc == "unknown":
+        return emit(err_json("unknown encoding; cannot verify", EXIT_ERROR, "use --encoding"), EXIT_ERROR)
+    res = decode_with_bom(data, enc)
+    if res is None:
+        return emit(err_json("strict decode failed as %s; cannot verify" % enc, EXIT_ERROR), EXIT_ERROR)
+    text, _ = res
+    v = verify_text(text, enc)
+    if v["damaged"]:
         action = "file appears damaged; restore from backup (e.g. <file>.orig) if available and re-edit via enc replace"
     else:
-        action = "no damage detected; safe to proceed (run `enc cleanup <file>` to remove the backup snapshot)"
+        base = "no damage detected; safe to proceed"
+        if os.path.isfile(path + ".orig"):
+            action = base + " (backup snapshot retained; run `enc cleanup <file>` to remove)"
+        else:
+            action = base
     return emit({"ok": True, "file": os.path.abspath(path), "encoding": enc, "confidence": det["confidence"],
-                 "fffdCount": fffd_count, "fffdSamples": fffd_samples, "qCount": q_count, "qRatio": round(q_ratio, 6),
-                 "mojibakePatterns": mojibake, "damaged": damaged, "suggestedAction": action}, EXIT_OK)
+                 "fffdCount": v["fffdCount"], "fffdSamples": v["fffdSamples"], "qCount": v["qCount"],
+                 "qRatio": v["qRatio"], "suspiciousQ": v["suspiciousQ"],
+                 "mojibakePatterns": v["mojibakePatterns"], "damaged": v["damaged"],
+                 "suggestedAction": action}, EXIT_OK)
 
 
 def cmd_cleanup(path):
@@ -691,6 +725,28 @@ def cmd_cleanup(path):
     except OSError as e:
         return emit(err_json("cleanup failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
     return emit({"ok": True, "file": os.path.abspath(path), "removed": os.path.abspath(backup)}, EXIT_OK)
+
+
+def cmd_gc(path, all_flag):
+    """gc <dir> [--all]：维护命令。默认删除孤儿 .orig（target 缺失）；--all 递归删除全部。"""
+    if not os.path.isdir(path):
+        return emit(err_json("not a directory: %s" % path, EXIT_ERROR), EXIT_ERROR)
+    removed, kept = [], []
+    for root, dirs, files in os.walk(path):
+        for fn in sorted(files):
+            if not fn.endswith(".orig"):
+                continue
+            fp = os.path.join(root, fn)
+            target = fp[:-len(".orig")]
+            if all_flag or not os.path.exists(target):
+                try:
+                    os.remove(fp)
+                    removed.append(os.path.abspath(fp))
+                except OSError:
+                    kept.append(os.path.abspath(fp))
+            else:
+                kept.append(os.path.abspath(fp))
+    return emit({"ok": True, "dir": os.path.abspath(path), "removed": removed, "kept": kept}, EXIT_OK)
 
 
 def _probe_runtime(cmd):
@@ -726,13 +782,20 @@ subcommands:
   detect <file>
   read <file> [--out <utf8-path>] [--encoding <enc>]
   replace <file> <ops-json> | --from-file <ops-file>
-          [--encoding <enc>] [--dry-run] [--no-backup] [--verbose] [--force]
+          [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
   convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep]
-          [--line-ending keep|crlf|lf] [--dry-run] [--no-backup]
+          [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]
   verify <file> [--encoding <enc>]
   cleanup <file>
+  gc <dir> [--all]
   selfcheck
+
+Global: -h, --help                     show this help; exit 0
+        help <subcommand>              show subcommand help
+        <subcommand> --help            show subcommand help
+Note: --no-backup was removed (bottom line: writes always make a backup).
 """
+
 
 
 def take_option(args, flag, need_value=False):
@@ -768,12 +831,44 @@ def take_option(args, flag, need_value=False):
     return rest, (value if found else None)
 
 
+SUB_HELP = {
+ "detect": "enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/safeToEditDirectly/suggestedAction.\n",
+ "read": "enc read <file> [--out <utf8-path>] [--encoding <enc>]\n  Decode to UTF-8 (stdout or --out); does not modify the file.\n",
+ "replace": "enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n",
+ "convert": "enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n",
+ "verify": "enc verify <file> [--encoding <enc>]\n  Scan for U+FFFD / ? density / mojibake patterns; suggests restore or cleanup (conditional on .orig).\n",
+ "cleanup": "enc cleanup <file>\n  Remove <file>.orig single-step snapshot (maintenance).\n",
+ "gc": "enc gc <dir> [--all]\n  Maintenance: remove orphan .orig (target missing); --all removes all *.orig under dir.\n",
+ "selfcheck": "enc selfcheck\n  List available runtimes.\n",
+}
+
+def sub_help(name):
+    txt = SUB_HELP.get(name)
+    if not txt:
+        return emit(err_json("unknown subcommand: %s" % name, EXIT_ERROR), EXIT_ERROR)
+    sys.stdout.write(txt)
+    return EXIT_OK
+
+
+COMMANDS = {"detect", "read", "replace", "convert", "verify", "cleanup", "gc", "selfcheck"}
+
 def main(argv):
     if not argv:
         sys.stderr.write(USAGE)
         return EXIT_ERROR
     sub = argv[0]
     args = argv[1:]
+    if sub in ("-h", "--help"):
+        sys.stdout.write(USAGE)
+        return EXIT_OK
+    if sub == "help":
+        if len(args) != 1:
+            return emit(err_json("help requires exactly one <subcommand>", EXIT_ERROR), EXIT_ERROR)
+        return sub_help(args[0])
+    if sub in COMMANDS and any(a in ("--help", "-h") for a in args):
+        return sub_help(sub)
+    if "--no-backup" in args:
+        return emit(err_json("--no-backup was removed; writes always make a backup (bottom line)", EXIT_ERROR), EXIT_ERROR)
     if sub == "detect":
         if len(args) != 1:
             return emit(err_json("detect requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
@@ -788,30 +883,30 @@ def main(argv):
         args, ff = take_option(args, "--from-file", True)
         args, enc = take_option(args, "--encoding", True)
         args, dry = take_option(args, "--dry-run")
-        args, nb = take_option(args, "--no-backup")
+        args, kb = take_option(args, "--keep-backup")
         args, verb = take_option(args, "--verbose")
         args, force = take_option(args, "--force")
         if ff is not None:
             if len(args) != 1:
                 return emit(err_json("replace --from-file requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-            return cmd_replace(args[0], None, ff, enc, dry is not None, nb is not None, verb is not None, force is not None)
+            return cmd_replace(args[0], None, ff, enc, dry is not None, kb is not None, verb is not None, force is not None)
         if len(args) != 2:
             return emit(err_json("replace requires <file> <ops-json> or --from-file <ops-file>", EXIT_ERROR), EXIT_ERROR)
-        return cmd_replace(args[0], args[1], None, enc, dry is not None, nb is not None, verb is not None, force is not None)
+        return cmd_replace(args[0], args[1], None, enc, dry is not None, kb is not None, verb is not None, force is not None)
     if sub == "convert":
         args, to = take_option(args, "--to", True)
         args, frm = take_option(args, "--from", True)
         args, bom = take_option(args, "--bom", True)
         args, le = take_option(args, "--line-ending", True)
         args, dry = take_option(args, "--dry-run")
-        args, nb = take_option(args, "--no-backup")
+        args, kb = take_option(args, "--keep-backup")
         if len(args) != 1:
             return emit(err_json("convert requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
         if bom is not None and bom not in ("add", "remove", "keep"):
             return emit(err_json("--bom must be add|remove|keep", EXIT_ERROR), EXIT_ERROR)
         if le is not None and le not in ("keep", "crlf", "lf"):
             return emit(err_json("--line-ending must be keep|crlf|lf", EXIT_ERROR), EXIT_ERROR)
-        return cmd_convert(args[0], to, frm, bom or "keep", le or "keep", dry is not None, nb is not None)
+        return cmd_convert(args[0], to, frm, bom or "keep", le or "keep", dry is not None, kb is not None)
     if sub == "verify":
         args, enc = take_option(args, "--encoding", True)
         if len(args) != 1:
@@ -821,6 +916,11 @@ def main(argv):
         if len(args) != 1:
             return emit(err_json("cleanup requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
         return cmd_cleanup(args[0])
+    if sub == "gc":
+        args, allf = take_option(args, "--all")
+        if len(args) != 1:
+            return emit(err_json("gc requires exactly one <dir>", EXIT_ERROR), EXIT_ERROR)
+        return cmd_gc(args[0], allf is not None)
     if sub == "selfcheck":
         return cmd_selfcheck()
     return emit(err_json("unknown subcommand: %s" % sub, EXIT_ERROR), EXIT_ERROR)

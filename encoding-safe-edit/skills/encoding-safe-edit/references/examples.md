@@ -28,13 +28,11 @@ $ENC detect src/monitthread.cpp
 $ENC replace src/monitthread.cpp --from-file ops.json --dry-run --verbose
 
 # 4) 确认无误后真正替换（自动生成 src/monitthread.cpp.orig 备份）
+#    默认事务化：写后自动验证，damaged:false 则自动删除 .orig，无需手动 cleanup
 $ENC replace src/monitthread.cpp --from-file ops.json
 
-# 5) 事后验证
+# 5)（可选）事后验证；默认写后已自动验证，如需人工复核可执行
 $ENC verify src/monitthread.cpp
-
-# 6) 确认无误后清理 .orig 快照（避免残留）
-$ENC cleanup src/monitthread.cpp
 ```
 
 要点：不要用 Agent 原生 Edit/Write 直接改 GBK 文件；不要用命令行传中文 ops。
@@ -89,15 +87,16 @@ $ENC convert sjis.txt --to utf-8 --from shift_jis
 ```bash
 ENC="<SKILL_DIR>/scripts/enc"
 $ENC verify file.txt
-# damaged: false -> 安全；确认后清理快照
-$ENC cleanup file.txt
+# damaged: false -> 安全；默认写后已自动清理 .orig，无需 cleanup
+# 仅当使用过 --keep-backup、仍留有 .orig 时，才需要：
+#   $ENC cleanup file.txt
 # damaged: true  -> 从备份恢复并重新编辑
 cp file.txt.orig file.txt
 ```
 
 verify 会扫描 U+FFFD、`?` 密度、经典乱码模式（`锟斤拷` 等）。
 
-注意：`.orig` 只保留**最近一次写前**的状态（覆盖式单步快照）；若之后又对该文件执行过写操作，恢复的是上一写前版本。确认无误后 `enc cleanup file.txt` 删除，避免残留。
+注意：`.orig` 只保留**最近一次写前**的状态（覆盖式单步快照）；若之后又对该文件执行过写操作，恢复的是上一写前版本。默认写后验证通过会自动删除 `.orig`；仅当使用 `--keep-backup` 或 `damaged:true` 时 `verify` 才会提示你清理/恢复。
 
 ## 7. 场景 G：dry-run 与批量替换
 

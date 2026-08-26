@@ -1,7 +1,7 @@
 {
   "name": "encoding-safe-edit",
   "description": "确保文本文件读改写不破坏原始编码的编码安全编辑 skill（GBK/GB18030/UTF-8/UTF-16）",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": {
     "name": "zongzi78"
   },

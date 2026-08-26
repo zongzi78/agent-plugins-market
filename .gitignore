@@ -1,0 +1,5 @@
+# agent-plugins-market 仓库 .gitignore（防运行时产物污染入库）
+__pycache__/
+*.pyc
+*.orig
+.out/

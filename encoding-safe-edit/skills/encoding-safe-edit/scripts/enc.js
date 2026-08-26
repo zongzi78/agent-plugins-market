@@ -613,7 +613,7 @@ function detectFile(p) {
       d.suggestedAction = 'use replace/convert tool with explicit --encoding';
     } else {
       d.safeToEditDirectly = true;
-      d.suggestedAction = 'native edit allowed if project permits';
+      d.suggestedAction = 'encoding determinable; native edit only if pure ASCII or tool encoding explicitly controlled; otherwise use enc';
     }
     if (data.length > 0) d.lineEnding = detectLineEnding(data.toString('latin1'));
     return d;
@@ -634,7 +634,7 @@ function detectFile(p) {
     } else {
       d.confidence = 'high';
       d.safeToEditDirectly = true;
-      d.suggestedAction = 'native edit allowed if project permits';
+      d.suggestedAction = 'encoding determinable; native edit only if pure ASCII or tool encoding explicitly controlled; otherwise use enc';
     }
     if (nulHeavy) {
       d.confidence = 'medium';
@@ -821,7 +821,7 @@ function cmdRead(p, out, explicit) {
   if (det) log('detect: encoding=' + det.encoding + ' confidence=' + det.confidence + ' bom=' + det.bom + ' lineEnding=' + det.lineEnding);
   return EXIT_OK;
 }
-function cmdReplace(p, opsArg, fromFile, explicit, dryRun, noBackup, verbose, force) {
+function cmdReplace(p, opsArg, fromFile, explicit, dryRun, keepBackup, verbose, force) {
   if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
   const lo = loadOps(opsArg, fromFile);
   if (lo.err) return emit(errJson(lo.err, EXIT_ERROR), EXIT_ERROR);
@@ -852,16 +852,17 @@ function cmdReplace(p, opsArg, fromFile, explicit, dryRun, noBackup, verbose, fo
     verboseHex(payload, 'result');
     ops.forEach((o, i) => log('[verbose] op' + (i + 1) + ' ' + JSON.stringify(redact(o.search)) + ' -> ' + JSON.stringify(redact(o.replace)) + ' count=' + applied.counts[i]));
   }
-  if (ops.length === 0) return emit({ ok: true, applied: 0, matches: [], backup: null, dryRun: false, warnings: [] }, EXIT_OK);
-  try { writeWithBackup(p, payload, !noBackup); } catch (e) { return emit(errJson('write failed: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
-  if (verbose) log('[verbose] wrote ' + payload.length + ' bytes; backup=' + (noBackup ? null : p + '.orig'));
+  if (ops.length === 0) return emit({ ok: true, applied: 0, matches: [], backup: null, cleanup: null, dryRun: false, warnings: [] }, EXIT_OK);
+  try { writeWithBackup(p, payload, true); } catch (e) { return emit(errJson('write failed: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+  const [backupFinal, cleanup, damaged] = postWriteCleanup(p, applied.text, r.enc, keepBackup);
+  if (verbose) log('[verbose] wrote ' + payload.length + ' bytes; backup=' + backupFinal + '; cleanup=' + cleanup);
   const warnings = unmatched.map(l => ({ label: l }));
   return emit({ ok: true, applied: applied.counts.filter(c => c > 0).length,
     matches: ops.map((o, i) => ({ label: o.label, count: applied.counts[i] })),
-    backup: noBackup ? null : p + '.orig', dryRun: false, warnings: warnings },
+    backup: backupFinal, cleanup: cleanup, damaged: damaged, dryRun: false, warnings: warnings },
     unmatched.length ? EXIT_UNMATCHED : EXIT_OK);
 }
-function cmdConvert(p, to, fromEnc, bomPolicy, lineEnding, dryRun, noBackup) {
+function cmdConvert(p, to, fromEnc, bomPolicy, lineEnding, dryRun, keepBackup) {
   if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
   if (!to) return emit(errJson('--to <encoding> is required', EXIT_ERROR), EXIT_ERROR);
   to = normalizeEncoding(to);
@@ -891,19 +892,13 @@ function cmdConvert(p, to, fromEnc, bomPolicy, lineEnding, dryRun, noBackup) {
   }
   const payload = encodeWithBom(text, to, targetBom);
   if (payload === null) return emit(errJson('strict encode failed as ' + to + ' (fail-closed; nothing written)', EXIT_ERROR), EXIT_ERROR);
-  if (dryRun) return emit({ ok: true, dryRun: true, from: r.enc, to: to, bom: targetBom, lineEnding: lineEnding, backup: null }, EXIT_OK);
-  try { writeWithBackup(p, payload, !noBackup); } catch (e) { return emit(errJson('write failed: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
-  return emit({ ok: true, from: r.enc, to: to, bom: targetBom, lineEnding: lineEnding, dryRun: false, backup: noBackup ? null : p + '.orig' }, EXIT_OK);
+  if (dryRun) return emit({ ok: true, dryRun: true, from: r.enc, to: to, bom: targetBom, lineEnding: lineEnding, backup: null, cleanup: null }, EXIT_OK);
+  try { writeWithBackup(p, payload, true); } catch (e) { return emit(errJson('write failed: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+  const [backupFinal, cleanup, damaged] = postWriteCleanup(p, text, to, keepBackup);
+  return emit({ ok: true, from: r.enc, to: to, bom: targetBom, lineEnding: lineEnding, dryRun: false, backup: backupFinal, cleanup: cleanup, damaged: damaged }, EXIT_OK);
 }
-function cmdVerify(p, explicit) {
-  if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
-  let data;
-  try { data = readBytes(p); } catch (e) { return emit(errJson('IO error: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
-  const det = detectFile(p);
-  const enc = explicit || det.encoding;
-  if (enc === 'unknown') return emit(errJson('unknown encoding; cannot verify', EXIT_ERROR, 'use --encoding'), EXIT_ERROR);
-  const text = decodeWithBom(data, enc);
-  if (text === null) return emit(errJson('strict decode failed as ' + enc + '; cannot verify', EXIT_ERROR), EXIT_ERROR);
+
+function verifyText(text, encoding) {
   const fffdSamples = [];
   let fffdCount = 0;
   for (let i = 0; i < text.length; i++) {
@@ -930,12 +925,42 @@ function cmdVerify(p, explicit) {
     if (c) mojibake[pat] = c;
   }
   const damaged = fffdCount > 0 || Object.keys(mojibake).length > 0 || suspiciousQ;
-  const action = damaged
-    ? 'file appears damaged; restore from backup (e.g. <file>.orig) if available and re-edit via enc replace'
-    : 'no damage detected; safe to proceed (run `enc cleanup <file>` to remove the backup snapshot)';
+  return { fffdCount: fffdCount, fffdSamples: fffdSamples, qCount: qCount, qRatio: Math.round(qRatio * 1e6) / 1e6,
+    suspiciousQ: suspiciousQ, mojibakePatterns: mojibake, damaged: damaged };
+}
+
+function postWriteCleanup(p, text, enc, keepBackup) {
+  const backup = p + '.orig';
+  if (keepBackup) return [backup, 'retained', false];
+  const v = verifyText(text, enc);
+  if (v.damaged) return [backup, 'retained', true];
+  if (fs.existsSync(backup)) {
+    try { fs.unlinkSync(backup); } catch (e) { return [backup, 'retained', true]; }
+  }
+  return [null, 'removed', false];
+}
+
+function cmdVerify(p, explicit) {
+  if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
+  let data;
+  try { data = readBytes(p); } catch (e) { return emit(errJson('IO error: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+  const det = detectFile(p);
+  const enc = explicit || det.encoding;
+  if (enc === 'unknown') return emit(errJson('unknown encoding; cannot verify', EXIT_ERROR, 'use --encoding'), EXIT_ERROR);
+  const text = decodeWithBom(data, enc);
+  if (text === null) return emit(errJson('strict decode failed as ' + enc + '; cannot verify', EXIT_ERROR), EXIT_ERROR);
+  const v = verifyText(text, enc);
+  let action;
+  if (v.damaged) {
+    action = 'file appears damaged; restore from backup (e.g. <file>.orig) if available and re-edit via enc replace';
+  } else {
+    const base = 'no damage detected; safe to proceed';
+    action = fs.existsSync(p + '.orig') ? base + ' (backup snapshot retained; run `enc cleanup <file>` to remove)' : base;
+  }
   return emit({ ok: true, file: path.resolve(p), encoding: enc, confidence: det.confidence,
-    fffdCount: fffdCount, fffdSamples: fffdSamples, qCount: qCount, qRatio: Math.round(qRatio * 1e6) / 1e6,
-    mojibakePatterns: mojibake, damaged: damaged, suggestedAction: action }, EXIT_OK);
+    fffdCount: v.fffdCount, fffdSamples: v.fffdSamples, qCount: v.qCount, qRatio: v.qRatio,
+    suspiciousQ: v.suspiciousQ, mojibakePatterns: v.mojibakePatterns, damaged: v.damaged,
+    suggestedAction: action }, EXIT_OK);
 }
 function cmdCleanup(p) {
   if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
@@ -949,6 +974,25 @@ function cmdCleanup(p) {
   try { fs.unlinkSync(backup); } catch (e) { return emit(errJson('cleanup failed: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
   return emit({ ok: true, file: path.resolve(p), removed: path.resolve(backup) }, EXIT_OK);
 }
+
+function cmdGc(dir, allFlag) {
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return emit(errJson('not a directory: ' + dir, EXIT_ERROR), EXIT_ERROR);
+  const removed = [], kept = [];
+  function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const fp = path.join(d, e.name);
+      if (e.isDirectory()) { walk(fp); continue; }
+      if (!e.name.endsWith('.orig')) continue;
+      const target = fp.slice(0, -'.orig'.length);
+      if (allFlag || !fs.existsSync(target)) {
+        try { fs.unlinkSync(fp); removed.push(path.resolve(fp)); } catch (err) { kept.push(path.resolve(fp)); }
+      } else kept.push(path.resolve(fp));
+    }
+  }
+  walk(dir);
+  return emit({ ok: true, dir: path.resolve(dir), removed: removed, kept: kept }, EXIT_OK);
+}
+
 function existsOnPath(name) {
   const isWin = process.platform === 'win32';
   const exts = isWin ? ['', '.exe', '.cmd', '.bat'] : [''];
@@ -1002,15 +1046,44 @@ function takeOption(args, flag, needValue) {
 const USAGE = 'usage: enc <subcommand> [options]\n' +
   '  detect <file>\n' +
   '  read <file> [--out <utf8-path>] [--encoding <enc>]\n' +
-  '  replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--no-backup] [--verbose] [--force]\n' +
-  '  convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--no-backup]\n' +
+  '  replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n' +
+  '  convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n' +
   '  verify <file> [--encoding <enc>]\n' +
   '  cleanup <file>\n' +
-  '  selfcheck\n';
+  '  gc <dir> [--all]\n' +
+  '  selfcheck\n' +
+  '\nGlobal: -h, --help                show this help; exit 0\n' +
+  '         help <subcommand>         show subcommand help\n' +
+  '         <subcommand> --help       show subcommand help\n' +
+  'Note: --no-backup was removed (bottom line: writes always make a backup).\n';
+const COMMANDS = ['detect', 'read', 'replace', 'convert', 'verify', 'cleanup', 'gc', 'selfcheck'];
+const SUB_HELP = {
+  detect: 'enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/safeToEditDirectly/suggestedAction.\n',
+  read: 'enc read <file> [--out <utf8-path>] [--encoding <enc>]\n  Decode to UTF-8 (stdout or --out); does not modify the file.\n',
+  replace: 'enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n',
+  convert: 'enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n',
+  verify: 'enc verify <file> [--encoding <enc>]\n  Scan for U+FFFD / ? density / mojibake patterns; suggests restore or cleanup (conditional on .orig).\n',
+  cleanup: 'enc cleanup <file>\n  Remove <file>.orig single-step snapshot (maintenance).\n',
+  gc: 'enc gc <dir> [--all]\n  Maintenance: remove orphan .orig (target missing); --all removes all *.orig under dir.\n',
+  selfcheck: 'enc selfcheck\n  List available runtimes.\n',
+};
+function subHelp(name) {
+  const txt = SUB_HELP[name];
+  if (!txt) return emit(errJson('unknown subcommand: ' + name, EXIT_ERROR), EXIT_ERROR);
+  process.stdout.write(txt);
+  return EXIT_OK;
+}
 function main(argv) {
   if (!argv.length) { process.stderr.write(USAGE); return EXIT_ERROR; }
   const sub = argv[0];
   let args = argv.slice(1);
+  if (sub === '-h' || sub === '--help') { process.stdout.write(USAGE); return EXIT_OK; }
+  if (sub === 'help') {
+    if (args.length !== 1) return emit(errJson('help requires exactly one <subcommand>', EXIT_ERROR), EXIT_ERROR);
+    return subHelp(args[0]);
+  }
+  if (COMMANDS.indexOf(sub) >= 0 && args.some(a => a === '--help' || a === '-h')) return subHelp(sub);
+  if (args.indexOf('--no-backup') >= 0) return emit(errJson('--no-backup was removed; writes always make a backup (bottom line)', EXIT_ERROR), EXIT_ERROR);
   if (sub === 'detect') {
     if (args.length !== 1) return emit(errJson('detect requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
     return cmdDetect(args[0]);
@@ -1025,15 +1098,15 @@ function main(argv) {
     let o = takeOption(args, '--from-file', true); args = o.rest; const ff = o.value;
     o = takeOption(args, '--encoding', true); args = o.rest; const enc = o.value;
     o = takeOption(args, '--dry-run'); args = o.rest; const dry = o.value !== undefined;
-    o = takeOption(args, '--no-backup'); args = o.rest; const nb = o.value !== undefined;
+    o = takeOption(args, '--keep-backup'); args = o.rest; const kb = o.value !== undefined;
     o = takeOption(args, '--verbose'); args = o.rest; const verb = o.value !== undefined;
     o = takeOption(args, '--force'); args = o.rest; const force = o.value !== undefined;
     if (ff !== undefined) {
       if (args.length !== 1) return emit(errJson('replace --from-file requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
-      return cmdReplace(args[0], null, ff, enc, dry, nb, verb, force);
+      return cmdReplace(args[0], null, ff, enc, dry, kb, verb, force);
     }
     if (args.length !== 2) return emit(errJson('replace requires <file> <ops-json> or --from-file <ops-file>', EXIT_ERROR), EXIT_ERROR);
-    return cmdReplace(args[0], args[1], null, enc, dry, nb, verb, force);
+    return cmdReplace(args[0], args[1], null, enc, dry, kb, verb, force);
   }
   if (sub === 'convert') {
     let o = takeOption(args, '--to', true); args = o.rest; const to = o.value;
@@ -1041,11 +1114,11 @@ function main(argv) {
     o = takeOption(args, '--bom', true); args = o.rest; const bom = o.value;
     o = takeOption(args, '--line-ending', true); args = o.rest; const le = o.value;
     o = takeOption(args, '--dry-run'); args = o.rest; const dry = o.value !== undefined;
-    o = takeOption(args, '--no-backup'); args = o.rest; const nb = o.value !== undefined;
+    o = takeOption(args, '--keep-backup'); args = o.rest; const kb = o.value !== undefined;
     if (args.length !== 1) return emit(errJson('convert requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
     if (bom !== undefined && ['add', 'remove', 'keep'].indexOf(bom) < 0) return emit(errJson('--bom must be add|remove|keep', EXIT_ERROR), EXIT_ERROR);
     if (le !== undefined && ['keep', 'crlf', 'lf'].indexOf(le) < 0) return emit(errJson('--line-ending must be keep|crlf|lf', EXIT_ERROR), EXIT_ERROR);
-    return cmdConvert(args[0], to, frm, bom || 'keep', le || 'keep', dry, nb);
+    return cmdConvert(args[0], to, frm, bom || 'keep', le || 'keep', dry, kb);
   }
   if (sub === 'verify') {
     const o = takeOption(args, '--encoding', true); args = o.rest; const enc = o.value;
@@ -1055,6 +1128,11 @@ function main(argv) {
   if (sub === 'cleanup') {
     if (args.length !== 1) return emit(errJson('cleanup requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
     return cmdCleanup(args[0]);
+  }
+  if (sub === 'gc') {
+    let o = takeOption(args, '--all'); args = o.rest; const allf = o.value !== undefined;
+    if (args.length !== 1) return emit(errJson('gc requires exactly one <dir>', EXIT_ERROR), EXIT_ERROR);
+    return cmdGc(args[0], allf);
   }
   if (sub === 'selfcheck') return cmdSelfcheck();
   return emit(errJson('unknown subcommand: ' + sub, EXIT_ERROR), EXIT_ERROR);
