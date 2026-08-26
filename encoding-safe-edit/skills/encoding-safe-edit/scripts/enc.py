@@ -252,7 +252,6 @@ def detect_file(path):
         "fffdCount": 0,
         "asciiOnly": True,
         "decodeHints": [],
-        "safeToEditDirectly": False,
         "suggestedAction": "unknown: ask",
     }
     # ① BOM
@@ -271,13 +270,11 @@ def detect_file(path):
             d["confidence"] = "high"
             d["lineEnding"] = detect_line_ending(t)
             d["fffdCount"] = t.count("\ufffd")
-            d["safeToEditDirectly"] = False  # 带 BOM 一律不可直写
             d["suggestedAction"] = "use replace tool" if bom_kind == "utf-8" else "use replace/convert tool"
         else:
             d["encoding"] = {"utf-8": "utf-8", "utf-16le": "utf-16le", "utf-16be": "utf-16be"}[bom_kind]
             d["confidence"] = "medium"
             d["decodeHints"] = [HINT_BOM_CORRUPT]
-            d["safeToEditDirectly"] = False
             d["suggestedAction"] = "use replace tool / follow project policy"
         return d
     # ② NUL 密度全局预检
@@ -290,11 +287,9 @@ def detect_file(path):
         d["asciiOnly"] = True
         if nul_heavy:
             d["decodeHints"] = [HINT_NUL]
-            d["safeToEditDirectly"] = False
             d["suggestedAction"] = "use replace/convert tool with explicit --encoding"
         else:
-            d["safeToEditDirectly"] = True
-            d["suggestedAction"] = "encoding determinable; native edit only if pure ASCII or tool encoding explicitly controlled; otherwise use enc"
+            d["suggestedAction"] = "use replace tool"
         if data == b"":
             d["lineEnding"] = "unknown"
         else:
@@ -309,17 +304,14 @@ def detect_file(path):
         if gbk_ok:
             d["confidence"] = "medium"
             d["decodeHints"] = [HINT_DUAL]
-            d["safeToEditDirectly"] = False
             d["suggestedAction"] = "use replace tool / follow project policy"
         else:
             d["confidence"] = "high"
-            d["safeToEditDirectly"] = True
-            d["suggestedAction"] = "encoding determinable; native edit only if pure ASCII or tool encoding explicitly controlled; otherwise use enc"
+            d["suggestedAction"] = "use replace tool"
         d["lineEnding"] = detect_line_ending(data.decode("utf-8", errors="strict"))
         d["fffdCount"] = data.decode("utf-8", errors="strict").count("\ufffd")
         if nul_heavy:
             d["confidence"] = "medium"
-            d["safeToEditDirectly"] = False
             d["suggestedAction"] = "use replace/convert tool with explicit --encoding"
             d["decodeHints"] = [HINT_NUL]
         return d
@@ -332,10 +324,8 @@ def detect_file(path):
         d["fffdCount"] = data.decode("gbk", errors="strict").count("\ufffd")
         if nul_heavy:
             d["decodeHints"] = [HINT_NUL]
-            d["safeToEditDirectly"] = False
             d["suggestedAction"] = "use replace/convert tool with explicit --encoding"
         else:
-            d["safeToEditDirectly"] = False
             d["suggestedAction"] = "use replace tool"
         return d
     # ⑥ 严格 GB18030
@@ -348,17 +338,14 @@ def detect_file(path):
         d["fffdCount"] = data.decode("gb18030", errors="strict").count("\ufffd")
         if nul_heavy:
             d["decodeHints"] = [HINT_NUL]
-            d["safeToEditDirectly"] = False
             d["suggestedAction"] = "use replace/convert tool with explicit --encoding"
         else:
-            d["safeToEditDirectly"] = False
             d["suggestedAction"] = "use replace tool"
         return d
     # ⑦ unknown
     d["encoding"] = "unknown"
     d["confidence"] = "low"
     d["asciiOnly"] = False
-    d["safeToEditDirectly"] = False
     d["suggestedAction"] = "unknown: ask"
     hints = []
     for c in HINT_CODECS:
@@ -832,7 +819,7 @@ def take_option(args, flag, need_value=False):
 
 
 SUB_HELP = {
- "detect": "enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/safeToEditDirectly/suggestedAction.\n",
+ "detect": "enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/suggestedAction.\n",
  "read": "enc read <file> [--out <utf8-path>] [--encoding <enc>]\n  Decode to UTF-8 (stdout or --out); does not modify the file.\n",
  "replace": "enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n",
  "convert": "enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n",

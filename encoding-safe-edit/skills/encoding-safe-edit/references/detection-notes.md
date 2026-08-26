@@ -15,8 +15,8 @@
 
 ① BOM（含 UTF-32 排除与正文严格校验）→ ② NUL 密度全局预检（>1%，BOM 命中除外）→ ③ 空文件/全 ASCII → ④ 严格 UTF-8 → ④a 双合法检测（UTF-8 与 GBK 均可解）→ ⑤ 严格 GBK → ⑥ 严格 GB18030 → ⑦ unknown。
 
-- BOM 命中后仍需对去除 BOM 的剩余字节做同编码严格校验；校验失败 → `confidence: medium` + 损坏提示（"带 BOM 但正文无法严格解码，可能已损坏"），`safeToEditDirectly: false`。
-- NUL 预检命中 → 无论后续命中哪个类别，`confidence` 一律 `medium`，decodeHints 加 NUL 提示，`safeToEditDirectly: false`。
+- BOM 命中后仍需对去除 BOM 的剩余字节做同编码严格校验；校验失败 → `confidence: medium` + 损坏提示（"带 BOM 但正文无法严格解码，可能已损坏"）。
+- NUL 预检命中 → 无论后续命中哪个类别，`confidence` 一律 `medium`，decodeHints 加 NUL 提示。
 - ASCII/空文件 → `low`（ASCII 是 GBK/UTF-8 双合法歧义样本）。
 - 双合法 → `utf-8` + `medium` + 提示 `valid in both utf-8 and gbk; follow project policy`。
 - GBK-only → `gbk/high`；GB18030-only → `gb18030/high`；以上皆否 → `unknown/low`。
@@ -55,7 +55,7 @@ decodeHints 是**建议性**候选提示，不是判定结果：
 
 - .NET 严格 936 比 Python gbk / glibc iconv 宽松（接受孤立 0x80 → €，且部分 UTF-8 中文样本在 .NET 下"双合法"）。
 - 因此同一文件：PS 探针可能报 `utf-8+gbk-dual` 或 `gbk`，bash 探针 / enc detect 报 `utf-8` 或 `gb18030`——三者都是诚实结果。
-- BOM 正文损坏：enc detect 报 `utf-8/medium + 损坏提示`；PS/bash 探针报 `unknown`（语义等价：均不可直写）。
+- BOM 正文损坏：enc detect 报 `utf-8/medium + 损坏提示`；PS/bash 探针报 `unknown`（语义等价：都需走 `enc`，无默认直写）。
 - 原生探针是零依赖门禁；置信度细化与归一以 enc detect 为权威。
 
 ## 6. 实现行为说明与已知边界
@@ -64,7 +64,7 @@ decodeHints 是**建议性**候选提示，不是判定结果：
 
 1. Big5/Shift_JIS 纯双字节内容在确定性顺序下必然落 gbk 或 gb18030，无法构造 unknown；"不自动判"落实为 detect 永不输出 big5/shift_jis。
 2. `shift-jis` 夹具需含单字节 ≥0x80（半角片假名）才能触发 unknown + 候选提示。
-3. NUL-heavy → `ascii/medium` + NUL 提示 + `safeToEditDirectly: false`（验收 11 以"medium + 不可直写"为核心）。
+3. NUL-heavy → `ascii/medium` + NUL 提示（验证 11 以"medium + NUL 提示、写路径需显式 `--encoding`"为核心）。
 4. BOM 正文损坏：detect medium + 损坏提示；探针 unknown；写路径 fail-closed（退出码 1）。
 5. `corrupted-fffd`（abc + U+FFFD + def）为 UTF-8 与 GBK 双合法 → `utf-8/medium`；内容损坏由 fffdCount 与 verify 呈现。
 6. NUL-heavy 写路径要求显式 `--encoding`（否则 fail-closed 退出码 1）——防止按错误编码（ascii）改写无 BOM UTF-16。

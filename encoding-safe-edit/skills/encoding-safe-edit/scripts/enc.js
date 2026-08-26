@@ -575,7 +575,7 @@ function detectFile(p) {
   const d = {
     file: path.resolve(p), encoding: 'unknown', confidence: 'low', bom: 'none',
     lineEnding: 'unknown', fffdCount: 0, asciiOnly: true, decodeHints: [],
-    safeToEditDirectly: false, suggestedAction: 'unknown: ask'
+    suggestedAction: 'unknown: ask'
   };
   const nulHeavy = data.length > 0 && (countNul(data) / data.length) > 0.01;
   if (bomKind === 'utf-32le' || bomKind === 'utf-32be') {
@@ -592,13 +592,11 @@ function detectFile(p) {
       d.confidence = 'high';
       d.lineEnding = detectLineEnding(t);
       d.fffdCount = countFffd(t);
-      d.safeToEditDirectly = false;
       d.suggestedAction = bomKind === 'utf-8' ? 'use replace tool' : 'use replace/convert tool';
     } else {
       d.encoding = bomKind;
       d.confidence = 'medium';
       d.decodeHints = [HINT_BOM_CORRUPT];
-      d.safeToEditDirectly = false;
       d.suggestedAction = 'use replace tool / follow project policy';
     }
     return d;
@@ -609,11 +607,9 @@ function detectFile(p) {
     d.asciiOnly = true;
     if (nulHeavy) {
       d.decodeHints = [HINT_NUL];
-      d.safeToEditDirectly = false;
       d.suggestedAction = 'use replace/convert tool with explicit --encoding';
     } else {
-      d.safeToEditDirectly = true;
-      d.suggestedAction = 'encoding determinable; native edit only if pure ASCII or tool encoding explicitly controlled; otherwise use enc';
+      d.suggestedAction = 'use replace tool';
     }
     if (data.length > 0) d.lineEnding = detectLineEnding(data.toString('latin1'));
     return d;
@@ -629,17 +625,14 @@ function detectFile(p) {
     if (gbkok) {
       d.confidence = 'medium';
       d.decodeHints = [HINT_DUAL];
-      d.safeToEditDirectly = false;
       d.suggestedAction = 'use replace tool / follow project policy';
     } else {
       d.confidence = 'high';
-      d.safeToEditDirectly = true;
-      d.suggestedAction = 'encoding determinable; native edit only if pure ASCII or tool encoding explicitly controlled; otherwise use enc';
+      d.suggestedAction = 'use replace tool';
     }
     if (nulHeavy) {
       d.confidence = 'medium';
       d.decodeHints = [HINT_NUL];
-      d.safeToEditDirectly = false;
       d.suggestedAction = 'use replace/convert tool with explicit --encoding';
     }
     return d;
@@ -652,10 +645,8 @@ function detectFile(p) {
     d.confidence = nulHeavy ? 'medium' : 'high';
     if (nulHeavy) {
       d.decodeHints = [HINT_NUL];
-      d.safeToEditDirectly = false;
       d.suggestedAction = 'use replace/convert tool with explicit --encoding';
     } else {
-      d.safeToEditDirectly = false;
       d.suggestedAction = 'use replace tool';
     }
     return d;
@@ -668,10 +659,8 @@ function detectFile(p) {
     d.confidence = nulHeavy ? 'medium' : 'high';
     if (nulHeavy) {
       d.decodeHints = [HINT_NUL];
-      d.safeToEditDirectly = false;
       d.suggestedAction = 'use replace/convert tool with explicit --encoding';
     } else {
-      d.safeToEditDirectly = false;
       d.suggestedAction = 'use replace tool';
     }
     return d;
@@ -1058,7 +1047,7 @@ const USAGE = 'usage: enc <subcommand> [options]\n' +
   'Note: --no-backup was removed (bottom line: writes always make a backup).\n';
 const COMMANDS = ['detect', 'read', 'replace', 'convert', 'verify', 'cleanup', 'gc', 'selfcheck'];
 const SUB_HELP = {
-  detect: 'enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/safeToEditDirectly/suggestedAction.\n',
+  detect: 'enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/suggestedAction.\n',
   read: 'enc read <file> [--out <utf8-path>] [--encoding <enc>]\n  Decode to UTF-8 (stdout or --out); does not modify the file.\n',
   replace: 'enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n',
   convert: 'enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n',

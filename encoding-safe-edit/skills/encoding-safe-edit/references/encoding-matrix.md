@@ -70,7 +70,7 @@
 ## 5. BOM 与行尾
 
 - BOM：UTF-8=`EF BB BF`、UTF-16LE=`FF FE`、UTF-16BE=`FE FF`、UTF-32LE=`FF FE 00 00`、UTF-32BE=`00 00 FE FF`。
-- 带 BOM 文件一律 `safeToEditDirectly: false`；`enc replace` 自动保留 BOM。
+- 带 BOM 文件一律走 `enc replace`，自动保留 BOM。
 - `--bom keep` 语义 = 保持"是否带 BOM"状态；目标编码无 BOM 概念（GBK 等）则不产生 BOM 字节。
 - 行尾枚举：crlf / lf / cr / mixed / unknown；mixed 文件 replace 按行记录原行尾、逐行还原。
 

@@ -18,7 +18,7 @@
 ```bash
 ENC="<SKILL_DIR>/scripts/enc"
 
-# 1) 先确认编码（GBK 文件应报 gbk/high，safeToEditDirectly=false）
+# 1) 先确认编码（GBK 文件应报 gbk/high）
 $ENC detect src/monitthread.cpp
 
 # 2) 把要改的"search/replace"写成 UTF-8 无 BOM 的 JSON 文件
@@ -43,7 +43,7 @@ $ENC verify src/monitthread.cpp
 $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 
 & $enc detect header.h
-# encoding: utf-8, bom: utf-8, safeToEditDirectly: false
+# encoding: utf-8, bom: utf-8
 
 # 带 BOM 文件禁止原生编辑；用 enc replace（自动保留 BOM）
 & $enc replace header.h --from-file ops.json
@@ -123,7 +123,7 @@ $ENC replace file.txt --from-file ops.json
 ```powershell
 $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 
-# 1) detect 确认编码（utf-8/high、无 BOM，safeToEditDirectly=true）
+# 1) detect 确认编码（utf-8/high、无 BOM）
 & $enc detect notes.md
 
 # 2) 不要用 Set-Content 默认行为；用 enc replace 走字节路径
@@ -135,5 +135,5 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 & $enc verify notes.md
 ```
 
-要点：`safeToEditDirectly: true` 只表示该编码本身可直改，不等于任何工具的默认行为都安全；
+要点：即便 detect 报 utf-8/high，写入仍一律走 `enc replace`（无豁免）；任何工具的默认行为都可能破坏编码；
 在中文 Windows 上仍优先走 `enc`，或显式 UTF-8 读写并 `verify`。
