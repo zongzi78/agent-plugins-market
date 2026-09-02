@@ -4,7 +4,7 @@
 
 ## 系统要求
 
-- 运行时：Python 3.8+ 或 Node.js 18+（`enc` 启动器自动探测，Python 优先、Node 兜底；`--runtime auto|python3|python|py -3|uv|node` 可显式指定，默认 `auto`）
+- 运行时：Python 3.8+ 或 Node.js 18+（`enc` 启动器自动探测，**uv 优先（Python 系）**、Node 兜底；`--runtime auto|uv|python3|python|py -3|node` 可显式指定，默认 `auto`）
 - 平台：Windows / Linux / macOS（Windows 下 PowerShell 5.1+）
 
 ## 快速使用
@@ -14,6 +14,10 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 
 # 1) 检测编码
 & $enc detect file.txt
+
+# 1.5) 定位文本 / 按行读取（只读，不修改文件）
+& $enc find file.txt "目标串" --ignore-case --max-count 5
+& $enc read file.txt --from-line 10 --to-line 20
 
 # 2) 安全替换（ops 写为 UTF-8 无 BOM 的 JSON，中文内容必须走 --from-file）
 & $enc replace file.txt --from-file ops.json --dry-run
@@ -37,7 +41,8 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 | 子命令 | 说明 |
 |--------|------|
 | `detect` | 输出编码、置信度、BOM、行尾、是否可安全直改 |
-| `read` | 按原编码解码，以 UTF-8 输出，不修改原文件 |
+| `find` | 按字面量在解码文本中定位子串，返回行/列与上下文；支持 `--ignore-case` / `--max-count` / `--pattern-file`（只读） |
+| `read` | 按原编码解码，以 UTF-8 输出，不修改原文件；支持 `--line N` / `--from-line N --to-line M` 行范围读取 |
 | `replace` | 按原编码搜索替换，保留原编码/BOM/行尾；默认事务化：写后验证通过自动清理 `.orig`，`--keep-backup` 保留快照 |
 | `convert` | 转码，支持 BOM 与行尾策略；默认事务化：写后验证通过自动清理 `.orig` |
 | `verify` | 扫描 U+FFFD 与转码痕迹，检测损坏；`suggestedAction` 按 `.orig` 是否存在条件化 |

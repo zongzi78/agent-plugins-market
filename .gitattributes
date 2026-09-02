@@ -1,0 +1,2 @@
+# encoding-safe-edit 插件：强制 LF（跨平台；避免 bash enc 脚本被 autocrlf 转成 CRLF 而破坏）
+encoding-safe-edit/skills/** text eol=lf

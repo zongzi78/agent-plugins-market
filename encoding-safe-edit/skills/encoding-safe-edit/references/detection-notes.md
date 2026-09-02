@@ -56,7 +56,7 @@ decodeHints 是**建议性**候选提示，不是判定结果：
 - .NET 严格 936 比 Python gbk / glibc iconv 宽松（接受孤立 0x80 → €，且部分 UTF-8 中文样本在 .NET 下"双合法"）。
 - 因此同一文件：PS 探针可能报 `utf-8+gbk-dual` 或 `gbk`，bash 探针 / enc detect 报 `utf-8` 或 `gb18030`——三者都是诚实结果。
 - BOM 正文损坏：enc detect 报 `utf-8/medium + 损坏提示`；PS/bash 探针报 `unknown`（语义等价：都需走 `enc`，无默认直写）。
-- 原生探针是零依赖门禁；置信度细化与归一以 enc detect 为权威。
+- 原生探针是测试/开发用独立探测（零依赖），置信度细化与归一以 enc detect 为权威；不再作为发布物内门禁。
 
 ## 6. 实现行为说明与已知边界
 

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """encoding-safe-edit skill 主实现（Python，首选运行时）。
 
-子命令：detect / read / replace / convert / verify / cleanup / gc / selfcheck
+子命令：detect / find / read / replace / convert / verify / cleanup / gc
 安全语义：fail-closed、默认自动备份、dry-run、原子写、BOM/行尾保留、日志脱敏、不接 shell。
 stdout 强制 UTF-8；错误对象 schema：{"ok":false,"error":str,"exitCode":int,"hint":str|null}。
 """
@@ -10,10 +10,11 @@ import sys
 import os
 import re
 import json
+import time
 import shutil
 import tempfile
-import subprocess
 import codecs
+import bisect
 
 if sys.version_info >= (3, 7):
     try:
@@ -55,8 +56,25 @@ def log(msg):
 
 
 def read_bytes(path):
+    return _retry(_open_read, path)
+
+
+def _open_read(path):
     with open(path, "rb") as f:
         return f.read()
+
+
+def _retry(fn, *args, **kwargs):
+    """对瞬态 PermissionError（Windows 文件锁）重试；其余异常直接抛。"""
+    import time as _t
+    last = None
+    for _ in range(4):
+        try:
+            return fn(*args, **kwargs)
+        except PermissionError as e:
+            last = e
+            _t.sleep(0.1)
+    raise last
 
 
 def is_regular_file(path):
@@ -235,7 +253,7 @@ def atomic_write(path, data):
 def write_with_backup(path, data, backup=True):
     """先备份后原子写。备份 = <path>.orig（覆盖策略）。"""
     if backup:
-        shutil.copy2(path, path + ".orig")
+        _retry(shutil.copy2, path, path + ".orig")
     atomic_write(path, data)
 
 
@@ -467,17 +485,51 @@ def verbose_hex(data, label):
 
 
 # ---------------------------------------------------------------- 子命令
-def cmd_detect(path):
-    if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
-    try:
-        d = detect_file(path)
-    except OSError as e:
-        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
-    return emit(d, EXIT_OK)
+
+def _build_fold_map(text):
+    """返回 (casefold 后的文本, orig_idx)。orig_idx[i] = 折叠文本第 i 个码点对应的原始码点下标。"""
+    parts = []
+    orig = []
+    for i, ch in enumerate(text):
+        f = ch.casefold()
+        parts.append(f)
+        for _ in f:
+            orig.append(i)
+    return "".join(parts), orig
 
 
-def cmd_read(path, out, explicit):
+def _clip(s, n):
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def _locate(off, starts, rows):
+    """根据全局码点偏移定位 (1-based line, 1-based col, 行内容)。"""
+    i = bisect.bisect_right(starts, off) - 1
+    if i < 0:
+        i = 0
+    if i >= len(rows):
+        i = len(rows) - 1
+    content, term = rows[i]
+    return i + 1, off - starts[i] + 1, content
+
+
+def cmd_find(path, pattern, pattern_file, explicit, ignore_case, max_count, verbose=False):
+    if pattern is None:
+        if pattern_file is None:
+            return emit(err_json("find requires a pattern or --pattern-file", EXIT_ERROR), EXIT_ERROR)
+        try:
+            raw = open(pattern_file, "rb").read()
+        except OSError as e:
+            return emit(err_json("cannot read pattern file: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        if raw.startswith(codecs.BOM_UTF8):
+            raw = raw[3:]
+        try:
+            pattern = raw.decode("utf-8")
+        except UnicodeDecodeError as e:
+            return emit(err_json("pattern file is not valid UTF-8: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        pattern = re.sub(r"(?:\r\n|\r|\n)$", "", pattern, count=1)
+    if not pattern:
+        return emit(err_json("empty pattern", EXIT_ERROR), EXIT_ERROR)
     if not is_regular_file(path):
         return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
     try:
@@ -491,23 +543,127 @@ def cmd_read(path, out, explicit):
     if res is None:
         return emit(err_json("strict decode failed as %s" % enc, EXIT_ERROR), EXIT_ERROR)
     text, bom_kind = res
+    det = None if explicit else detect_file(path)
+    line_end = det["lineEnding"] if det else detect_line_ending(text)
+    work = normalize_lf(text)
+    rows = split_keepends(work)
+    starts = []
+    off = 0
+    for content, term in rows:
+        starts.append(off)
+        off += len(content) + len(term)
+    if ignore_case:
+        search, orig_idx = _build_fold_map(work)
+        pat = normalize_lf(pattern).casefold()
+        if not pat:
+            return emit(err_json("empty folded pattern", EXIT_ERROR), EXIT_ERROR)
+        patlen = len(pat)
+        step = patlen
+    else:
+        search = work
+        orig_idx = None
+        pat = normalize_lf(pattern)
+        patlen = len(pat)
+        step = patlen
+    matches = []
+    total = 0
+    pos = 0
+    while True:
+        idx = search.find(pat, pos)
+        if idx < 0:
+            break
+        total += 1
+        if total <= max_count:
+            o_off = orig_idx[idx] if ignore_case else idx
+            line_no, col, row_text = _locate(o_off, starts, rows)
+            matches.append({
+                "line": line_no,
+                "col": col,
+                "text": _clip(row_text, 200),
+                "snippet": _clip(row_text.strip(), 200),
+            })
+        pos = idx + step
+        if step <= 0:
+            break
+    if verbose:
+        log("[verbose] find pattern=%s matchCount=%d" % (redact(pattern), total))
+    return emit({"ok": True, "file": os.path.abspath(path), "encoding": enc, "bom": bom_kind,
+                 "lineEnding": line_end, "matchCount": total, "matches": matches}, EXIT_OK)
+
+
+def cmd_detect(path):
+    if not is_regular_file(path):
+        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+    try:
+        d = detect_file(path)
+    except OSError as e:
+        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
+    return emit(d, EXIT_OK)
+
+
+def cmd_read(path, out, explicit, line=None, from_line=None, to_line=None):
+    if not is_regular_file(path):
+        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+    try:
+        data = read_bytes(path)
+    except OSError as e:
+        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
+    enc, bom, de = resolve_source_encoding(path, data, explicit)
+    if de:
+        return emit(err_json(de, EXIT_ERROR, "use --encoding to specify the file encoding"), EXIT_ERROR)
+    res = decode_with_bom(data, enc)
+    if res is None:
+        return emit(err_json("strict decode failed as %s" % enc, EXIT_ERROR), EXIT_ERROR)
+    text, bom_kind = res
+    if line is None and from_line is None and to_line is None:
+        if out:
+            try:
+                with open(out, "w", encoding="utf-8", newline="") as f:
+                    f.write(text)
+            except OSError as e:
+                return emit(err_json("cannot write out file: %s" % e, EXIT_ERROR), EXIT_ERROR)
+            return emit({"ok": True, "out": os.path.abspath(out), "encoding": enc, "bom": bom_kind,
+                         "bytesWritten": len(text.encode("utf-8"))}, EXIT_OK)
+        det = detect_file(path) if not explicit else None
+        sys.stdout.write(text)
+        if det:
+            log("detect: encoding=%s confidence=%s bom=%s lineEnding=%s" % (
+                det["encoding"], det["confidence"], det["bom"], det["lineEnding"]))
+        return EXIT_OK
+    rows = split_keepends(text)
+    total = len(rows)
+    if total == 0:
+        return emit(err_json("empty file has no lines to read", EXIT_ERROR), EXIT_ERROR)
+    if line is not None:
+        if line > total:
+            return emit(err_json("line %d out of range (file has %d lines)" % (line, total), EXIT_ERROR), EXIT_ERROR)
+        start_idx = line - 1
+        end_idx = line
+        from_line_eff = line
+        to_line_eff = line
+    else:
+        if from_line > total:
+            return emit(err_json("from line %d out of range (file has %d lines)" % (from_line, total), EXIT_ERROR), EXIT_ERROR)
+        start_idx = from_line - 1
+        end_idx = to_line if to_line <= total else total
+        from_line_eff = from_line
+        to_line_eff = end_idx
+    body = "".join(content + term for content, term in rows[start_idx:end_idx])
     if out:
         try:
             with open(out, "w", encoding="utf-8", newline="") as f:
-                f.write(text)
+                f.write(body)
         except OSError as e:
             return emit(err_json("cannot write out file: %s" % e, EXIT_ERROR), EXIT_ERROR)
         return emit({"ok": True, "out": os.path.abspath(out), "encoding": enc, "bom": bom_kind,
-                     "bytesWritten": len(text.encode("utf-8"))}, EXIT_OK)
-    # stdout 原始文本（字节精确，不追加换行）；摘要走 stderr
+                     "bytesWritten": len(body.encode("utf-8")),
+                     "fromLine": from_line_eff, "toLine": to_line_eff, "totalLines": total}, EXIT_OK)
     det = detect_file(path) if not explicit else None
-    sys.stdout.write(text)
+    sys.stdout.write(body)
     if det:
         log("detect: encoding=%s confidence=%s bom=%s lineEnding=%s" % (
             det["encoding"], det["confidence"], det["bom"], det["lineEnding"]))
     return EXIT_OK
-
-
 def cmd_replace(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose, force):
     if not is_regular_file(path):
         return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
@@ -736,38 +892,13 @@ def cmd_gc(path, all_flag):
     return emit({"ok": True, "dir": os.path.abspath(path), "removed": removed, "kept": kept}, EXIT_OK)
 
 
-def _probe_runtime(cmd):
-    """found = 命令存在于 PATH（shutil.which）；usable = 实际执行 --version 成功。"""
-    found = shutil.which(cmd[0]) is not None
-    try:
-        p = subprocess.run(cmd + ["--version"], capture_output=True, timeout=15)
-        out = (p.stdout or b"").decode("utf-8", errors="replace") + (p.stderr or b"").decode("utf-8", errors="replace")
-        ok = p.returncode == 0 and bool(out.strip())
-        return {"found": found, "usable": ok, "version": (out.strip().splitlines()[0] if ok and out.strip() else None)}
-    except (OSError, subprocess.TimeoutExpired):
-        return {"found": found, "usable": False, "version": None}
-
-
-def cmd_selfcheck():
-    runtimes = {}
-    for name, cmd in [("python3", ["python3"]), ("python", ["python"]), ("py -3", ["py", "-3"]),
-                      ("uv", ["uv", "run", "--no-project", "python"]), ("node", ["node"])]:
-        runtimes[name] = _probe_runtime(cmd)
-    selected = None
-    for name in ("python3", "python", "py -3", "uv", "node"):
-        if runtimes[name]["usable"]:
-            selected = name
-            break
-    return emit({"ok": selected is not None, "runtimes": runtimes, "selectedRuntime": selected,
-                 "message": "no usable runtime; install Python or Node, or use --runtime to force" if selected is None else None},
-                EXIT_OK)
-
-
 USAGE = """usage: enc <subcommand> [options]
 
 subcommands:
   detect <file>
+  find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]
   read <file> [--out <utf8-path>] [--encoding <enc>]
+          [--line N] [--from-line N --to-line M]
   replace <file> <ops-json> | --from-file <ops-file>
           [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
   convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep]
@@ -775,7 +906,6 @@ subcommands:
   verify <file> [--encoding <enc>]
   cleanup <file>
   gc <dir> [--all]
-  selfcheck
 
 Global: -h, --help                     show this help; exit 0
         help <subcommand>              show subcommand help
@@ -820,13 +950,13 @@ def take_option(args, flag, need_value=False):
 
 SUB_HELP = {
  "detect": "enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/suggestedAction.\n",
- "read": "enc read <file> [--out <utf8-path>] [--encoding <enc>]\n  Decode to UTF-8 (stdout or --out); does not modify the file.\n",
+ "find": "enc find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  Locate literal substring (non-regex) in decoded text; output JSON matchCount/matches.\n",
+ "read": "enc read <file> [--out <utf8-path>] [--encoding <enc>] [--line N] [--from-line N --to-line M]\n  Decode to UTF-8 (stdout or --out); does not modify the file. With line args, output only selected lines.\n",
  "replace": "enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n",
  "convert": "enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n",
  "verify": "enc verify <file> [--encoding <enc>]\n  Scan for U+FFFD / ? density / mojibake patterns; suggests restore or cleanup (conditional on .orig).\n",
  "cleanup": "enc cleanup <file>\n  Remove <file>.orig single-step snapshot (maintenance).\n",
  "gc": "enc gc <dir> [--all]\n  Maintenance: remove orphan .orig (target missing); --all removes all *.orig under dir.\n",
- "selfcheck": "enc selfcheck\n  List available runtimes.\n",
 }
 
 def sub_help(name):
@@ -837,7 +967,7 @@ def sub_help(name):
     return EXIT_OK
 
 
-COMMANDS = {"detect", "read", "replace", "convert", "verify", "cleanup", "gc", "selfcheck"}
+COMMANDS = {"detect", "find", "read", "replace", "convert", "verify", "cleanup", "gc"}
 
 def main(argv):
     if not argv:
@@ -863,9 +993,61 @@ def main(argv):
     if sub == "read":
         args, out = take_option(args, "--out", True)
         args, enc = take_option(args, "--encoding", True)
+        args, line_opt = take_option(args, "--line", True)
+        args, from_opt = take_option(args, "--from-line", True)
+        args, to_opt = take_option(args, "--to-line", True)
         if len(args) != 1:
             return emit(err_json("read requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-        return cmd_read(args[0], out, enc)
+        line = from_line = to_line = None
+        if line_opt is not None or from_opt is not None or to_opt is not None:
+            def _pos(v):
+                try:
+                    n = int(v)
+                    return n if n > 0 else None
+                except (ValueError, TypeError):
+                    return None
+            if line_opt is not None:
+                line = _pos(line_opt)
+                if line is None:
+                    return emit(err_json("--line must be a positive integer", EXIT_ERROR), EXIT_ERROR)
+            if from_opt is not None:
+                from_line = _pos(from_opt)
+                if from_line is None:
+                    return emit(err_json("--from-line must be a positive integer", EXIT_ERROR), EXIT_ERROR)
+            if to_opt is not None:
+                to_line = _pos(to_opt)
+                if to_line is None:
+                    return emit(err_json("--to-line must be a positive integer", EXIT_ERROR), EXIT_ERROR)
+            if line is not None and (from_line is not None or to_line is not None):
+                return emit(err_json("--line cannot be combined with --from-line/--to-line", EXIT_ERROR), EXIT_ERROR)
+            if (from_line is None) != (to_line is None):
+                return emit(err_json("--from-line and --to-line must be used together", EXIT_ERROR), EXIT_ERROR)
+            if from_line is not None and from_line > to_line:
+                return emit(err_json("--from-line must be <= --to-line", EXIT_ERROR), EXIT_ERROR)
+        return cmd_read(args[0], out, enc, line, from_line, to_line)
+    if sub == "find":
+        args, pfile = take_option(args, "--pattern-file", True)
+        args, enc = take_option(args, "--encoding", True)
+        args, ic = take_option(args, "--ignore-case")
+        args, verb = take_option(args, "--verbose")
+        args, mc = take_option(args, "--max-count", True)
+        max_count = 100
+        if mc is not None:
+            try:
+                max_count = int(mc)
+            except ValueError:
+                return emit(err_json("--max-count must be a positive integer", EXIT_ERROR), EXIT_ERROR)
+            if max_count <= 0:
+                return emit(err_json("--max-count must be a positive integer", EXIT_ERROR), EXIT_ERROR)
+        if pfile is not None:
+            if not os.path.isfile(pfile):
+                return emit(err_json("pattern file not found: %s" % pfile, EXIT_ERROR), EXIT_ERROR)
+            if len(args) != 1:
+                return emit(err_json("find --pattern-file requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
+            return cmd_find(args[0], None, pfile, enc, ic is not None, max_count, verb is not None)
+        if len(args) != 2:
+            return emit(err_json("find requires <file> <pattern> or --pattern-file <file>", EXIT_ERROR), EXIT_ERROR)
+        return cmd_find(args[0], args[1], None, enc, ic is not None, max_count, verb is not None)
     if sub == "replace":
         args, ff = take_option(args, "--from-file", True)
         args, enc = take_option(args, "--encoding", True)
@@ -908,8 +1090,6 @@ def main(argv):
         if len(args) != 1:
             return emit(err_json("gc requires exactly one <dir>", EXIT_ERROR), EXIT_ERROR)
         return cmd_gc(args[0], allf is not None)
-    if sub == "selfcheck":
-        return cmd_selfcheck()
     return emit(err_json("unknown subcommand: %s" % sub, EXIT_ERROR), EXIT_ERROR)
 
 

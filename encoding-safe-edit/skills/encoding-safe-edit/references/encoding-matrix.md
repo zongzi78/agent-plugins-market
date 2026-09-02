@@ -45,13 +45,13 @@
 
 | 能力 | enc.py | enc.js | probes/detect.ps1 | probes/detect.sh |
 |------|--------|--------|-------------------|------------------|
-| detect（自动判定集） | ✓（权威） | ✓ | 门禁级 | 门禁级 |
+| detect（自动判定集） | ✓（权威） | ✓ | 测试/开发用独立 oracle | 测试/开发用独立 oracle |
 | detect（unknown 候选提示） | ✓ | ✓ | ✗ | ✗ |
 | read / replace / convert / verify | ✓ | ✓ | ✗ | ✗ |
 | 显式遗留编码（big5 等） | ✓ | ✓ | ✗ | ✗ |
 | 依赖 | Python 3.7+ 标准库 | Node + 自带 codec 数据（enc.gbkdata.js） | .NET（PS 内置） | iconv + coreutils |
 
-- `enc`/`enc.ps1` 启动器探测顺序：`python3 → python → py -3 → uv(run python) → node`；Python 可用优先，Node 兜底。`--runtime` 支持 `auto/python3/python/py -3/uv/node`：`auto` 按上述顺序，显式值只探测并只使用该命令，不可用即 fail-closed。
+- `enc`/`enc.ps1` 启动器探测顺序：`uv(run python) → python3 → python → py -3 → node`；Python 系（含 uv 管理的 Python）优先，Node 兜底。`--runtime` 支持 `auto/python3/python/py -3/uv/node`：`auto` 按上述顺序，显式值只探测并只使用该命令，不可用即 fail-closed。
 - 固定运行时的工作区可直连：`uv run --no-project <SKILL_DIR>/scripts/enc.py <subcommand> ...` 或 `node <SKILL_DIR>/scripts/enc.js <subcommand> ...`；直连跳过运行时探测与兜底。
 - 双实现一致性契约：enc.js 与 enc.py 严格语义一致（以 enc.py 为基准）；codec 数据由 Python 标准库 codec 实测生成并内置（`enc.gbkdata.js`）。
 
@@ -65,7 +65,7 @@
 | glibc iconv GBK | 抛错/拒绝（严格） | — | 抛错 |
 | Python gb18030 | — | — | 可解（U+0080） |
 
-结论：同一 UTF-8 中文文件在 .NET 探针下可能判"双合法"，在 Python/iconv 侧判 utf-8/high——两者都诚实。**enc detect 以 Python 为权威**；原生探针仅作门禁（§SKILL.md）。
+结论：同一 UTF-8 中文文件在 .NET 探针下可能判"双合法"，在 Python/iconv 侧判 utf-8/high——两者都诚实。**enc detect 以 Python 为权威**；原生探针是测试/开发用独立探测，仅作 `smoke-tests` 的 oracle，不入插件包（发布物内**不引用**其开发路径）。
 
 ## 5. BOM 与行尾
 

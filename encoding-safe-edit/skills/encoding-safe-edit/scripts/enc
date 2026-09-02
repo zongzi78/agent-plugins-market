@@ -2,7 +2,7 @@
 # enc - encoding-safe-edit launcher (bash/sh: Git Bash / WSL / Linux / macOS)
 # Zero-dependency launcher: probe a usable runtime by EXECUTING --version,
 # then forward all args to enc.py (preferred) or enc.js (fallback).
-# Candidate order: python3 -> python -> py -3 -> uv(run) -> node.
+# Candidate order: uv -> python3 -> python -> py -3 -> node.
 #   enc selfcheck                          -> runtime list (handled natively)
 #   enc --runtime auto|python3|python|py -3|uv|node <sub> ...
 set -u
@@ -45,6 +45,10 @@ is_python() { # "$@" = command
 }
 is_uv() {
   # 探测必须实际拉起 Python（uv 存在不代表能提供 Python）
+  local tmp="${TMPDIR:-/tmp}"
+  export UV_CACHE_DIR="$tmp/uv-cache"
+  export UV_PYTHON_INSTALL_DIR="$tmp/uv-python"
+  export UV_PYTHON_CACHE_DIR="$tmp/uv-pycache"
   local out
   out="$(probe_out uv run --no-project python --version)"
   [ $? -eq 0 ] && echo "$out" | grep -qE 'Python [0-9]+\.[0-9]+'
@@ -84,10 +88,10 @@ selfcheck() {
     f_node=1
     if is_node; then node=1; v_node="$(probe_out node --version 2>&1 | head -n1)"; fi
   fi
-  if [ "$py3" = "1" ]; then selected="python3"
+  if [ "$uv" = "1" ]; then selected="uv"
+  elif [ "$py3" = "1" ]; then selected="python3"
   elif [ "$py" = "1" ]; then selected="python"
   elif [ "$pyl" = "1" ]; then selected="py -3"
-  elif [ "$uv" = "1" ]; then selected="uv"
   elif [ "$node" = "1" ]; then selected="node"; fi
   local ok=true msg=""
   if [ -z "$selected" ]; then ok=false; msg="no usable runtime; install Python or Node, or use --runtime to force"; fi
@@ -109,10 +113,10 @@ fi
 
 case "$runtime" in
   auto)
+  if is_uv; then exec uv run --no-project python "$DIR/enc.py" "${args[@]}"; fi
     if is_python python3; then exec python3 "$DIR/enc.py" "${args[@]}"; fi
     if is_python python; then exec python "$DIR/enc.py" "${args[@]}"; fi
     if is_python py -3; then exec py -3 "$DIR/enc.py" "${args[@]}"; fi
-    if is_uv; then exec uv run --no-project python "$DIR/enc.py" "${args[@]}"; fi
     if is_node; then exec node "$DIR/enc.js" "${args[@]}"; fi
     echo '{"ok":false,"error":"no usable runtime (python3/python/py -3/uv/node all unavailable)","exitCode":1,"hint":"install Python or Node, or use --runtime to force"}'
     exit 1

@@ -55,7 +55,7 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 
 `enc` / `enc.ps1` 是零依赖启动器：自动探测可用运行时（Python 优先，Node 兜底），转发到 `enc.py` / `enc.js`。无可用运行时则拒绝执行并给出提示（fail-closed）。
 
-`--runtime` 接受 `auto`（默认）、`python3`、`python`、`py -3`、`uv`、`node`。`auto` 按 `python3 → python → py -3 → uv (uv run --no-project python) → node` 依次探测，第一个可用即转发；显式值只探测并只使用该命令，不可用时 fail-closed（退出码 1）。含空格的值（`py -3`）作为单个参数传入，PowerShell 中写成 `--runtime 'py -3'`。项目策略固定运行时（如工作区强制 uv）时用显式值：
+`--runtime` 接受 `auto`（默认）、`python3`、`python`、`py -3`、`uv`、`node`。`auto` 按 `uv (uv run --no-project python) → python3 → python → py -3 → node` 依次探测，第一个可用即转发；显式值只探测并只使用该命令，不可用时 fail-closed（退出码 1）。含空格的值（`py -3`）作为单个参数传入，PowerShell 中写成 `--runtime 'py -3'`。项目策略固定运行时（如工作区强制 uv）时用显式值：
 
 ```powershell
 enc.ps1 --runtime uv detect <file>
@@ -72,7 +72,7 @@ Read `references/detection-notes.md` 了解置信度与歧义细节（只需在�
    - **写入一律走 `enc replace`/`convert`（无豁免）**；`unknown` / 双合法 / NUL-heavy 见下。
    - `encoding: unknown` → **禁止直接写**，按 `decodeHints` 或项目约束用 `--encoding` 显式指定后重试。
    - `confidence: medium`（双合法 / NUL-heavy）→ 看提示与项目约束；NUL-heavy 必须显式 `--encoding utf-16-le/be` 才能写。
-3. **read（需要看内容时）**：`enc read <file> [--out <临时文件>]`。输出为 UTF-8；用 `--out` 写临时文件再读，规避控制台乱码。中文环境必用 `--out` 或直接读 stdout 字节。
+3. **定位 + read（需要找/看内容时）**：定位用 `enc find <file> <pattern>`（见下）；读取用 `enc read <file> [--out <临时文件>] [--line N | --from-line N --to-line M]`。输出为 UTF-8；用 `--out` 写临时文件再读，规避控制台乱码；只看某行/区间用行参数。中文环境必用 `--out` 或直接读 stdout 字节。
 4. **replace（修改）**：把 ops 写成 UTF-8 无 BOM 的 JSON 文件，然后：
    ```bash
    enc replace <file> --from-file <ops.json> [--dry-run] [--verbose]
@@ -90,11 +90,18 @@ enc detect <file>
 ```
 输出 JSON：`encoding`（utf-8 / gbk / gb18030 / utf-16le / utf-16be / ascii / unknown）、`confidence`（high / medium / low）、`bom`、`lineEnding`、`fffdCount`、`asciiOnly`、`decodeHints`、`suggestedAction`。**detect 对 unknown 文件仍返回退出码 0**（正常完成；是否走 `enc` 由本 skill 统一决定，写入一律走 `enc`）。
 
+### find
+```bash
+enc find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]
+```
+按**字面量**在解码后文本中定位子串（非正则），返回 JSON：`matchCount`（真实总命中数，全量统计，**不因 `--max-count` 截断**）、`matches`（前 `--max-count` 条，每条含 `line`/`col`/`text`/`snippet`）。`line`/`col` 为 1-based，`col` 按**码点**计（含 emoji 时与字节/UTF-16 单位数不符）。`--ignore-case` 大小写不敏感；`--max-count` 默认 100、须为正整数；`--pattern-file` 提供 UTF-8 pattern 文件（内容剥离末尾一个换行序列），规避命令行对中文/特殊字符的破坏。无命中时 `ok:true, matchCount:0`，退出码 0。**只读，不改写。**
+
 ### read
 ```bash
 enc read <file> [--out <utf8-path>] [--encoding <enc>]
+        [--line N] [--from-line N --to-line M]
 ```
-按检测编码解码，内容以 UTF-8 输出到 stdout 或 `--out` 文件；**不修改原文件**。`--encoding` 用于默认候选集之外的显式编码（big5 / shift_jis / euc_jp / euc_kr / cp1252 等）。
+按检测编码解码，内容以 UTF-8 输出到 stdout 或 `--out` 文件；**不修改原文件**。`--encoding` 用于默认候选集之外的显式编码（big5 / shift_jis / euc_jp / euc_kr / cp1252 等）。带行参数只看第 N 行或第 N..M 行（1-based，含端点）；`--line` 与 `--from-line/--to-line` 互斥，`--from-line`/`--to-line` 必须成对；`M` 超过总行数时截断到末行，空文件任何行参数报错，`--line`/`--from-line` 越界报错；输出保留原行尾；`--out` 写 UTF-8 无 BOM，stdout 输出 JSON 元数据。
 
 ### replace
 ```bash
@@ -155,7 +162,7 @@ enc <subcommand> --help
 ```bash
 enc selfcheck
 ```
-输出可用运行时清单（区分"存在但不可执行"与"可用"），并给出候选顺序。
+由启动器（`enc` / `enc.ps1`）**原生处理**；`enc.py`/`enc.js` 实现层不再提供（直调返回 `unknown subcommand`）。输出可用运行时清单（区分"存在但不可执行"与"可用"），并给出候选顺序。
 
 ## 退出码
 

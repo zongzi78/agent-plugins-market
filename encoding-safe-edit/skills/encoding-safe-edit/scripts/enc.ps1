@@ -2,7 +2,7 @@
 # Zero-dependency launcher: probe a usable runtime by EXECUTING --version
 # (existence alone is not enough; python3 may be a WindowsApps store stub),
 # then forward all args to enc.py (preferred) or enc.js (fallback).
-# Candidate order: python3 -> python -> py -3 -> uv(run) -> node.
+# Candidate order: uv -> python3 -> python -> py -3 -> node.
 #   enc.ps1 selfcheck                 -> runtime list (handled natively)
 #   enc.ps1 --runtime auto|python3|python|py -3|uv|node <subcommand> [options...]
 # Keep this file pure ASCII (PS5.1 reads no-BOM as ANSI).
@@ -42,7 +42,15 @@ function Test-PythonCmd {
     return @{ found = $found; usable = $ok; version = $(if ($ok) { ($r.Out.Trim() -split "`r?`n")[0] } else { $null }) }
 }
 
+function Set-UvCache {
+    $tmp = [System.IO.Path]::GetTempPath()
+    $env:UV_CACHE_DIR = Join-Path $tmp "uv\cache"
+    $env:UV_PYTHON_INSTALL_DIR = Join-Path $tmp "uv\python"
+    $env:UV_PYTHON_CACHE_DIR = Join-Path $tmp "uv\pycache"
+}
+
 function Test-UvCmd {
+    Set-UvCache
     # Probe must actually launch Python (uv existing does not mean it can provide an interpreter)
     $r = Get-VersionOutput -Cmd @('uv', 'run', '--no-project', 'python', '--version')
     $ok = ($r.Code -eq 0) -and ($r.Out -match 'Python \d+\.\d+')
@@ -71,10 +79,10 @@ function Invoke-Selfcheck {
     $uv = Test-UvCmd
     $node = Test-NodeCmd
     $selected = $null
-    if ($py3.usable) { $selected = 'python3' }
+    if ($uv.usable) { $selected = 'uv' }
+    elseif ($py3.usable) { $selected = 'python3' }
     elseif ($py.usable) { $selected = 'python' }
     elseif ($pyLauncher.usable) { $selected = 'py -3' }
-    elseif ($uv.usable) { $selected = 'uv' }
     elseif ($node.usable) { $selected = 'node' }
     $obj = @{ ok = ($null -ne $selected); runtimes = @{
         'python3' = $py3; 'python' = $py; 'py -3' = $pyLauncher; 'uv' = $uv; 'node' = $node
@@ -108,14 +116,14 @@ if ($rest.Count -gt 0 -and $rest[0] -eq 'selfcheck') {
 }
 
 if ($runtime -eq 'auto') {
+    $uv = Test-UvCmd
+    if ($uv.usable) { Set-UvCache; & uv run --no-project python (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
     $py3 = Test-PythonCmd -ProbeCmd @('python3', '--version')
     if ($py3.usable) { & python3 (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
     $py = Test-PythonCmd -ProbeCmd @('python', '--version')
     if ($py.usable) { & python (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
     $pyLauncher = Test-PythonCmd -ProbeCmd @('py', '-3', '--version')
     if ($pyLauncher.usable) { & py -3 (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
-    $uv = Test-UvCmd
-    if ($uv.usable) { & uv run --no-project python (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
     $node = Test-NodeCmd
     if ($node.usable) { & node (Join-Path $scriptDir 'enc.js') @rest; exit $LASTEXITCODE }
     Write-Json '{"ok":false,"error":"no usable runtime (python3/python/py -3/uv/node all unavailable)","exitCode":1,"hint":"install Python or Node, or use --runtime to force"}'
@@ -140,6 +148,7 @@ if ($runtime -eq 'py -3') {
     exit 1
 }
 if ($runtime -eq 'uv') {
+    Set-UvCache
     $uv = Test-UvCmd
     if ($uv.usable) { & uv run --no-project python (Join-Path $scriptDir 'enc.py') @rest; exit $LASTEXITCODE }
     Write-Json '{"ok":false,"error":"no usable runtime uv","exitCode":1,"hint":"install uv, or use --runtime auto"}'

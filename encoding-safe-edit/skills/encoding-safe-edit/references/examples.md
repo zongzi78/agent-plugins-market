@@ -137,3 +137,29 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 
 要点：即便 detect 报 utf-8/high，写入仍一律走 `enc replace`（无豁免）；任何工具的默认行为都可能破坏编码；
 在中文 Windows 上仍优先走 `enc`，或显式 UTF-8 读写并 `verify`。
+
+## 9. 场景 I：定位文本 + 按行读取（find + read 行范围）
+
+```bash
+ENC="<SKILL_DIR>/scripts/enc"
+# find：在文件内按“字面量”定位（非正则），只读不改写
+$ENC find src/config.py "api_key ="
+# 输出 JSON：matchCount（真实总命中数，全量统计）、matches（前 --max-count 条）
+# 每条含 line / col / text / snippet；col 为 1-based 码点位置（含 emoji 时是码点而非字节）
+# 大小写不敏感、只取前 N 条
+$ENC find src/config.py "API_KEY" --ignore-case --max-count 5
+
+# 中文/特殊字符 pattern 走 --pattern-file（避免命令行破坏）；pattern 文件会剥离末尾一个换行序列
+printf '旧接口' > pat.txt
+$ENC find src/code.py --pattern-file pat.txt
+
+# read 按行读取：只看某行或某区间（含端点），保留原行尾
+$ENC read src/config.py --line 42            # 只看第 42 行
+$ENC read src/config.py --from-line 10 --to-line 20   # 第 10..20 行
+# --out 写 UTF-8 无 BOM，stdout 输出 JSON 元数据（含 fromLine/toLine/totalLines）
+$ENC read src/config.py --from-line 10 --to-line 20 --out /tmp/range.txt
+
+# 无命中：ok:true, matchCount:0（退出码 0）；行越界/空文件/组合非法 → 退出码 1
+```
+
+要点：`find` 与 `read 行范围` 都是**只读**，不生成 `.orig`；定位后如需上下文用 `read --from-line/--to-line`，无需退回原生 `grep`/`Select-String`（它们会绕过 enc 的编码安全机制）。

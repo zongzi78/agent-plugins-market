@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 const data = require('./enc.gbkdata.js');
+const CF = require('./enc.casefolddata.js');
 
 const EXIT_OK = 0, EXIT_ERROR = 1, EXIT_UNMATCHED = 2;
 const HINT_DUAL = 'valid in both utf-8 and gbk; follow project policy';
@@ -499,7 +500,14 @@ function errJson(error, exitCode, hint) {
   return { ok: false, error: error, exitCode: exitCode, hint: hint || null };
 }
 function log(msg) { process.stderr.write(msg + '\n'); }
-function readBytes(p) { return fs.readFileSync(p); }
+function retry(fn) {
+  let last;
+  for (let i = 0; i < 4; i++) {
+    try { return fn(); } catch (e) { last = e; if (e.code !== 'EPERM' && e.code !== 'EACCES') throw e; }
+  }
+  throw last;
+}
+function readBytes(p) { return retry(function () { return fs.readFileSync(p); }); }
 function isRegularFile(p) { try { return fs.statSync(p).isFile(); } catch (e) { return false; } }
 function bomOf(buf) {
   if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) return ['utf-8', buf.slice(3)];
@@ -553,7 +561,7 @@ function atomicWrite(p, buf) {
   }
 }
 function writeWithBackup(p, buf, backup) {
-  if (backup) fs.copyFileSync(p, p + '.orig');
+  if (backup) retry(function () { fs.copyFileSync(p, p + '.orig'); });
   atomicWrite(p, buf);
 }
 const CRED_RE = /((?:password|passwd|pwd|secret|token|api[_-]?key|authorization|credential)\s*[:=]\s*)[^\s,;"']+/gi;
@@ -788,12 +796,109 @@ function applyOps(text, ops) {
   return { text: newLines.join(''), counts, whole: false };
 }
 
+// ---------------------------------------------------------------- find helpers
+function pyCasefold(s) {
+  let out = '';
+  for (const ch of s) {
+    const cp = ch.codePointAt(0);
+    const m = CF[cp];
+    out += (m !== undefined) ? m : ch;
+  }
+  return out;
+}
+function cpLen(s) { return [...s].length; }
+function buildFoldMap(text) {
+  const parts = [];
+  const orig = []; // indexed by UTF-16 unit position in folded -> original code point index
+  let idx = 0;
+  for (const ch of text) {
+    const f = pyCasefold(ch);
+    parts.push(f);
+    for (let k = 0; k < f.length; k++) orig.push(idx);
+    idx++;
+  }
+  return { folded: parts.join(''), orig };
+}
+function unitToCpIndex(s, unitIdx) {
+  let cp = 0, off = 0;
+  for (const ch of s) {
+    if (off + ch.length > unitIdx) return cp;
+    off += ch.length; cp++;
+  }
+  return cp;
+}
+function clip(s, n) {
+  const arr = [...s];
+  return arr.length <= n ? s : arr.slice(0, n).join('') + '\u2026';
+}
+function locate(off, starts, rows) {
+  let lo = 0, hi = starts.length - 1, ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (starts[mid] <= off) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  const row = rows[ans];
+  return { line: ans + 1, col: off - starts[ans] + 1, text: row[0] };
+}
+function cmdFind(p, pattern, patternFile, explicit, ignoreCase, maxCount, verbose) {
+  if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
+  if (pattern === null) {
+    if (!patternFile) return emit(errJson('find requires a pattern or --pattern-file', EXIT_ERROR), EXIT_ERROR);
+    let raw;
+    try { raw = fs.readFileSync(patternFile); } catch (e) { return emit(errJson('cannot read pattern file: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+    if (raw.length >= 3 && raw[0] === 0xEF && raw[1] === 0xBB && raw[2] === 0xBF) raw = raw.slice(3);
+    try { pattern = raw.toString('utf8'); } catch (e) { return emit(errJson('pattern file is not valid UTF-8', EXIT_ERROR), EXIT_ERROR); }
+    pattern = pattern.replace(/(?:\r\n|\r|\n)$/, '');
+  }
+  if (!pattern) return emit(errJson('empty pattern', EXIT_ERROR), EXIT_ERROR);
+  let data;
+  try { data = readBytes(p); } catch (e) { return emit(errJson('IO error: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+  const r = resolveSourceEncoding(p, data, explicit);
+  if (r.err) return emit(errJson(r.err, EXIT_ERROR, 'use --encoding to specify the file encoding'), EXIT_ERROR);
+  const text = decodeWithBom(data, r.enc);
+  if (text === null) return emit(errJson('strict decode failed as ' + r.enc, EXIT_ERROR), EXIT_ERROR);
+  const det = explicit ? null : detectFile(p);
+  const lineEnd = det ? det.lineEnding : detectLineEnding(text);
+  const work = normalizeLf(text);
+  const rows = splitKeepends(work);
+  const starts = [];
+  let off = 0;
+  for (const row of rows) { starts.push(off); off += cpLen(row[0]) + cpLen(row[1]); }
+  let search, orig, pat, step;
+  if (ignoreCase) {
+    const fm = buildFoldMap(work);
+    search = fm.folded; orig = fm.orig;
+    pat = pyCasefold(normalizeLf(pattern));
+    if (!pat) return emit(errJson('empty folded pattern', EXIT_ERROR), EXIT_ERROR);
+    step = pat.length;
+  } else {
+    search = work; orig = null;
+    pat = normalizeLf(pattern); step = pat.length;
+  }
+  const matches = [];
+  let total = 0, pos = 0;
+  while (true) {
+    const idx = search.indexOf(pat, pos);
+    if (idx < 0) break;
+    total++;
+    if (total <= maxCount) {
+      const oOff = orig ? orig[idx] : unitToCpIndex(search, idx);
+      const loc = locate(oOff, starts, rows);
+      matches.push({ line: loc.line, col: loc.col, text: clip(loc.text, 200), snippet: clip(loc.text.trim(), 200) });
+    }
+    pos = idx + step;
+    if (step <= 0) break;
+  }
+  if (verbose) log('[verbose] find pattern=' + redact(pattern) + ' matchCount=' + total);
+  return emit({ ok: true, file: path.resolve(p), encoding: r.enc, bom: r.bom, lineEnding: lineEnd, matchCount: total, matches: matches }, EXIT_OK);
+}
+
 // ---------------- commands ----------------
 function cmdDetect(p) {
   if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
   try { return emit(detectFile(p), EXIT_OK); } catch (e) { return emit(errJson('IO error: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
 }
-function cmdRead(p, out, explicit) {
+function cmdRead(p, out, explicit, line, fromLine, toLine) {
   if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
   let data;
   try { data = readBytes(p); } catch (e) { return emit(errJson('IO error: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
@@ -801,11 +906,33 @@ function cmdRead(p, out, explicit) {
   if (r.err) return emit(errJson(r.err, EXIT_ERROR, 'use --encoding to specify the file encoding'), EXIT_ERROR);
   const text = decodeWithBom(data, r.enc);
   if (text === null) return emit(errJson('strict decode failed as ' + r.enc, EXIT_ERROR), EXIT_ERROR);
-  if (out) {
-    try { fs.writeFileSync(out, text, { encoding: 'utf8' }); } catch (e) { return emit(errJson('cannot write out file: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
-    return emit({ ok: true, out: path.resolve(out), encoding: r.enc, bom: r.bom, bytesWritten: Buffer.byteLength(text, 'utf8') }, EXIT_OK);
+  if (line === null && fromLine === null && toLine === null) {
+    if (out) {
+      try { fs.writeFileSync(out, text, { encoding: 'utf8' }); } catch (e) { return emit(errJson('cannot write out file: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+      return emit({ ok: true, out: path.resolve(out), encoding: r.enc, bom: r.bom, bytesWritten: Buffer.byteLength(text, 'utf8') }, EXIT_OK);
+    }
+    process.stdout.write(text);
+    const det = explicit ? null : detectFile(p);
+    if (det) log('detect: encoding=' + det.encoding + ' confidence=' + det.confidence + ' bom=' + det.bom + ' lineEnding=' + det.lineEnding);
+    return EXIT_OK;
   }
-  process.stdout.write(text);
+  const rows = splitKeepends(text);
+  const total = rows.length;
+  if (total === 0) return emit(errJson('empty file has no lines to read', EXIT_ERROR), EXIT_ERROR);
+  let startIdx, endIdx, fromLineEff, toLineEff;
+  if (line !== null) {
+    if (line > total) return emit(errJson('line ' + line + ' out of range (file has ' + total + ' lines)', EXIT_ERROR), EXIT_ERROR);
+    startIdx = line - 1; endIdx = line; fromLineEff = line; toLineEff = line;
+  } else {
+    if (fromLine > total) return emit(errJson('from line ' + fromLine + ' out of range (file has ' + total + ' lines)', EXIT_ERROR), EXIT_ERROR);
+    startIdx = fromLine - 1; endIdx = toLine <= total ? toLine : total; fromLineEff = fromLine; toLineEff = endIdx;
+  }
+  const body = rows.slice(startIdx, endIdx).map(function (row) { return row[0] + row[1]; }).join('');
+  if (out) {
+    try { fs.writeFileSync(out, body, { encoding: 'utf8' }); } catch (e) { return emit(errJson('cannot write out file: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+    return emit({ ok: true, out: path.resolve(out), encoding: r.enc, bom: r.bom, bytesWritten: Buffer.byteLength(body, 'utf8'), fromLine: fromLineEff, toLine: toLineEff, totalLines: total }, EXIT_OK);
+  }
+  process.stdout.write(body);
   const det = explicit ? null : detectFile(p);
   if (det) log('detect: encoding=' + det.encoding + ' confidence=' + det.confidence + ' bom=' + det.bom + ' lineEnding=' + det.lineEnding);
   return EXIT_OK;
@@ -993,29 +1120,6 @@ function existsOnPath(name) {
   }
   return false;
 }
-function probeRuntime(cmdArr) {
-  const found = existsOnPath(cmdArr[0]);
-  try {
-    const out = cp.execFileSync(cmdArr[0], cmdArr.slice(1).concat(['--version']), { encoding: 'utf8', timeout: 15000 });
-    const ok = out.trim().length > 0;
-    return { found: found, usable: ok, version: ok ? out.trim().split(/\r?\n/)[0] : null };
-  } catch (e) {
-    return { found: found, usable: false, version: null };
-  }
-}
-function cmdSelfcheck() {
-  const runtimes = {};
-  runtimes['python3'] = probeRuntime(['python3']);
-  runtimes['python'] = probeRuntime(['python']);
-  runtimes['py -3'] = probeRuntime(['py', '-3']);
-  runtimes['uv'] = probeRuntime(['uv', 'run', '--no-project', 'python']);
-  runtimes['node'] = probeRuntime(['node']);
-  let selected = null;
-  for (const name of ['python3', 'python', 'py -3', 'uv', 'node']) if (runtimes[name].usable) { selected = name; break; }
-  return emit({ ok: selected !== null, runtimes: runtimes, selectedRuntime: selected,
-    message: selected === null ? 'no usable runtime; install Python or Node, or use --runtime to force' : null }, EXIT_OK);
-}
-
 // ---------------- CLI ----------------
 function takeOption(args, flag, needValue) {
   const rest = [];
@@ -1034,27 +1138,27 @@ function takeOption(args, flag, needValue) {
 }
 const USAGE = 'usage: enc <subcommand> [options]\n' +
   '  detect <file>\n' +
-  '  read <file> [--out <utf8-path>] [--encoding <enc>]\n' +
+  '  find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  read <file> [--out <utf8-path>] [--encoding <enc>]\n          [--line N] [--from-line N --to-line M]\n' +
   '  replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n' +
   '  convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n' +
   '  verify <file> [--encoding <enc>]\n' +
   '  cleanup <file>\n' +
   '  gc <dir> [--all]\n' +
-  '  selfcheck\n' +
   '\nGlobal: -h, --help                show this help; exit 0\n' +
   '         help <subcommand>         show subcommand help\n' +
   '         <subcommand> --help       show subcommand help\n' +
   'Note: --no-backup was removed (bottom line: writes always make a backup).\n';
-const COMMANDS = ['detect', 'read', 'replace', 'convert', 'verify', 'cleanup', 'gc', 'selfcheck'];
+const COMMANDS = ['detect', 'find', 'read', 'replace', 'convert', 'verify', 'cleanup', 'gc'];
 const SUB_HELP = {
   detect: 'enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/suggestedAction.\n',
-  read: 'enc read <file> [--out <utf8-path>] [--encoding <enc>]\n  Decode to UTF-8 (stdout or --out); does not modify the file.\n',
+  read: 'enc read <file> [--out <utf8-path>] [--encoding <enc>] [--line N] [--from-line N --to-line M]\n  Decode to UTF-8 (stdout or --out); does not modify the file. With line args, output only selected lines.\n',
+  find: 'enc find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  Locate literal substring (non-regex) in decoded text; output JSON matchCount/matches.\n',
   replace: 'enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n',
   convert: 'enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n',
   verify: 'enc verify <file> [--encoding <enc>]\n  Scan for U+FFFD / ? density / mojibake patterns; suggests restore or cleanup (conditional on .orig).\n',
   cleanup: 'enc cleanup <file>\n  Remove <file>.orig single-step snapshot (maintenance).\n',
   gc: 'enc gc <dir> [--all]\n  Maintenance: remove orphan .orig (target missing); --all removes all *.orig under dir.\n',
-  selfcheck: 'enc selfcheck\n  List available runtimes.\n',
+
 };
 function subHelp(name) {
   const txt = SUB_HELP[name];
@@ -1080,8 +1184,40 @@ function main(argv) {
   if (sub === 'read') {
     let o = takeOption(args, '--out', true); args = o.rest; const out = o.value;
     o = takeOption(args, '--encoding', true); args = o.rest; const enc = o.value;
+    o = takeOption(args, '--line', true); args = o.rest; const lineOpt = o.value;
+    o = takeOption(args, '--from-line', true); args = o.rest; const fromOpt = o.value;
+    o = takeOption(args, '--to-line', true); args = o.rest; const toOpt = o.value;
     if (args.length !== 1) return emit(errJson('read requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
-    return cmdRead(args[0], out, enc);
+    let line = null, fromLine = null, toLine = null;
+    function posInt(v) { const n = parseInt(v, 10); return (v !== undefined && /^\d+$/.test(String(v)) && n > 0) ? n : null; }
+    if (lineOpt !== undefined || fromOpt !== undefined || toOpt !== undefined) {
+      if (lineOpt !== undefined) { line = posInt(lineOpt); if (line === null) return emit(errJson('--line must be a positive integer', EXIT_ERROR), EXIT_ERROR); }
+      if (fromOpt !== undefined) { fromLine = posInt(fromOpt); if (fromLine === null) return emit(errJson('--from-line must be a positive integer', EXIT_ERROR), EXIT_ERROR); }
+      if (toOpt !== undefined) { toLine = posInt(toOpt); if (toLine === null) return emit(errJson('--to-line must be a positive integer', EXIT_ERROR), EXIT_ERROR); }
+      if (line !== null && (fromLine !== null || toLine !== null)) return emit(errJson('--line cannot be combined with --from-line/--to-line', EXIT_ERROR), EXIT_ERROR);
+      if ((fromLine === null) !== (toLine === null)) return emit(errJson('--from-line and --to-line must be used together', EXIT_ERROR), EXIT_ERROR);
+      if (fromLine !== null && fromLine > toLine) return emit(errJson('--from-line must be <= --to-line', EXIT_ERROR), EXIT_ERROR);
+    }
+    return cmdRead(args[0], out, enc, line, fromLine, toLine);
+  }
+  if (sub === 'find') {
+    let o = takeOption(args, '--pattern-file', true); args = o.rest; const pfile = o.value;
+    o = takeOption(args, '--encoding', true); args = o.rest; const enc = o.value;
+    o = takeOption(args, '--ignore-case'); args = o.rest; const ic = o.value !== undefined;
+    o = takeOption(args, '--verbose'); args = o.rest; const verb = o.value !== undefined;
+    o = takeOption(args, '--max-count', true); args = o.rest; const mc = o.value;
+    let maxCount = 100;
+    if (mc !== undefined) {
+      maxCount = parseInt(mc, 10);
+      if (isNaN(maxCount) || maxCount <= 0 || !/^\d+$/.test(String(mc))) return emit(errJson('--max-count must be a positive integer', EXIT_ERROR), EXIT_ERROR);
+    }
+    if (pfile !== undefined) {
+      if (!fs.existsSync(pfile)) return emit(errJson('pattern file not found: ' + pfile, EXIT_ERROR), EXIT_ERROR);
+      if (args.length !== 1) return emit(errJson('find --pattern-file requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
+      return cmdFind(args[0], null, pfile, enc, ic, maxCount, verb);
+    }
+    if (args.length !== 2) return emit(errJson('find requires <file> <pattern> or --pattern-file <file>', EXIT_ERROR), EXIT_ERROR);
+    return cmdFind(args[0], args[1], null, enc, ic, maxCount, verb);
   }
   if (sub === 'replace') {
     let o = takeOption(args, '--from-file', true); args = o.rest; const ff = o.value;
@@ -1123,7 +1259,7 @@ function main(argv) {
     if (args.length !== 1) return emit(errJson('gc requires exactly one <dir>', EXIT_ERROR), EXIT_ERROR);
     return cmdGc(args[0], allf);
   }
-  if (sub === 'selfcheck') return cmdSelfcheck();
+
   return emit(errJson('unknown subcommand: ' + sub, EXIT_ERROR), EXIT_ERROR);
 }
 if (require.main === module) {
