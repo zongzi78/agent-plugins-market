@@ -163,3 +163,25 @@ $ENC read src/config.py --from-line 10 --to-line 20 --out /tmp/range.txt
 ```
 
 要点：`find` 与 `read 行范围` 都是**只读**，不生成 `.orig`；定位后如需上下文用 `read --from-line/--to-line`，无需退回原生 `grep`/`Select-String`（它们会绕过 enc 的编码安全机制）。
+
+## 10. 场景 J：在某行前/后插入一整行（`enc insert`）
+
+```bash
+ENC="<SKILL_DIR>/scripts/enc"
+
+# 场景：在 `### 2.3 xxx` 标题前插入一行说明
+#   优先用 enc insert（工具负责换行），避免用 replace 手写 \n 造成行合并
+cat > insert.json <<'EOF'
+[
+  {"anchor":"### 2.3 xxx","where":"before","text":"something add here。","label":"note"}
+]
+EOF
+$ENC insert src/notes.md --from-file insert.json --dry-run
+$ENC insert src/notes.md --from-file insert.json
+
+# 多行 text + 多命中 occurrence：
+#   {"anchor":"## 2.2 前面内容","where":"after","text":"补充段落\n第二行","occurrence":2,"trim":true}
+# 锚点是“整行内容”；若锚点是行中文本，改用 enc replace 做行内替换。
+```
+
+要点：`enc insert` 与 `enc replace` 同走写路径（备份/verify/自动清理 `.orig`）；`enc replace` 是字面替换、**不自动补换行**，插入整行请优先用 `enc insert`。

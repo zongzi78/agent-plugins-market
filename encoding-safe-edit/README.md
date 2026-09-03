@@ -27,6 +27,9 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 # 需要保留快照用于人工确认时加 --keep-backup：
 #   & $enc replace file.txt --from-file ops.json --keep-backup
 
+# 2.5) 在匹配 anchor（整行）的行前/后插入一整行（自动换行，避免 replace 漏 \n 行合并）
+& $enc insert file.txt --from-file ops.json
+
 # 3)（可选）事后复核
 & $enc verify file.txt
 
@@ -44,6 +47,7 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 | `find` | 按字面量在解码文本中定位子串，返回行/列与上下文；支持 `--ignore-case` / `--max-count` / `--pattern-file`（只读） |
 | `read` | 按原编码解码，以 UTF-8 输出，不修改原文件；支持 `--line N` / `--from-line N --to-line M` 行范围读取 |
 | `replace` | 按原编码搜索替换，保留原编码/BOM/行尾；默认事务化：写后验证通过自动清理 `.orig`，`--keep-backup` 保留快照 |
+| `insert` | 在匹配 `anchor`（整行）的那一行前/后插入一整行/多行；自动处理换行，避免 `replace` 漏 `\n` 导致行合并 |
 | `convert` | 转码，支持 BOM 与行尾策略；默认事务化：写后验证通过自动清理 `.orig` |
 | `verify` | 扫描 U+FFFD 与转码痕迹，检测损坏；`suggestedAction` 按 `.orig` 是否存在条件化 |
 | `cleanup` | 维护：删除 `<file>.orig` 单步撤销快照 |

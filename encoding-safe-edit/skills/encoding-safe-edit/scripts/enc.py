@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """encoding-safe-edit skill 主实现（Python，首选运行时）。
 
-子命令：detect / find / read / replace / convert / verify / cleanup / gc
+子命令：detect / find / read / replace / insert / convert / verify / cleanup / gc
 安全语义：fail-closed、默认自动备份、dry-run、原子写、BOM/行尾保留、日志脱敏、不接 shell。
 stdout 强制 UTF-8；错误对象 schema：{"ok":false,"error":str,"exitCode":int,"hint":str|null}。
 """
@@ -431,6 +431,58 @@ def load_ops(ops_arg, from_file):
     return cleaned, None
 
 
+def load_insert_ops(ops_arg, from_file):
+    """解析 insert ops（JSON 数组）。校验 anchor/text/where/occurrence/trim/label。
+    返回 (ops, err)；fail-closed：任一字段非法 → err。"""
+    if from_file:
+        if not os.path.isfile(from_file):
+            return None, "ops file not found: %s" % from_file
+        try:
+            with open(from_file, "r", encoding="utf-8") as f:
+                raw = f.read()
+        except (OSError, UnicodeDecodeError) as e:
+            return None, "cannot read ops file: %s" % e
+    else:
+        raw = ops_arg
+    try:
+        ops = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return None, "ops JSON parse error: %s" % e
+    if not isinstance(ops, list):
+        return None, "ops must be a JSON array"
+    cleaned = []
+    for i, op in enumerate(ops):
+        if not isinstance(op, dict):
+            return None, "ops[%d] must be a JSON object" % i
+        if "anchor" not in op or not isinstance(op["anchor"], str) or op["anchor"] == "":
+            return None, "ops[%d] must have a non-empty string 'anchor'" % i
+        if "\r" in op["anchor"] or "\n" in op["anchor"]:
+            return None, "ops[%d].anchor must not contain line breaks" % i
+        if "text" not in op or not isinstance(op["text"], str):
+            return None, "ops[%d] must have a string 'text'" % i
+        where = op.get("where", "before")
+        if where not in ("before", "after"):
+            return None, "ops[%d].where must be 'before'|'after'" % i
+        occurrence = op.get("occurrence")
+        if occurrence is not None:
+            if not isinstance(occurrence, int) or isinstance(occurrence, bool) or occurrence <= 0:
+                return None, "ops[%d].occurrence must be a positive integer" % i
+        trim = op.get("trim", False)
+        if not isinstance(trim, bool):
+            return None, "ops[%d].trim must be a boolean" % i
+        if "label" in op and not isinstance(op["label"], str):
+            return None, "ops[%d].label must be a string" % i
+        cleaned.append({
+            "anchor": op["anchor"],
+            "text": op["text"],
+            "where": where,
+            "occurrence": occurrence,
+            "trim": trim,
+            "label": op.get("label", "op%d" % (i + 1)),
+        })
+    return cleaned, None
+
+
 def apply_ops(text, ops):
     """在解码后文本上应用 ops；返回 (new_text, counts, whole_text_mode) 或 (None, None, "error: ...")。
     多行 op（search/replace 含换行）在 mixed 行尾文件上无法保证"逐行保留原行尾"→ fail-closed。"""
@@ -719,6 +771,105 @@ def cmd_replace(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbos
                  "dryRun": False, "warnings": warnings}, EXIT_UNMATCHED if unmatched else EXIT_OK)
 
 
+def cmd_insert(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose, force):
+    if not is_regular_file(path):
+        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+    ops, oerr = load_insert_ops(ops_arg, from_file)
+    if oerr:
+        return emit(err_json(oerr, EXIT_ERROR), EXIT_ERROR)
+    if len(ops) == 0:
+        return emit({"ok": True, "applied": 0, "matches": [], "backup": None, "cleanup": None,
+                     "dryRun": False, "warnings": []}, EXIT_OK)
+    try:
+        data = read_bytes(path)
+    except OSError as e:
+        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
+    enc, bom, de = resolve_source_encoding(path, data, explicit)
+    if de:
+        return emit(err_json(de, EXIT_ERROR, "use --encoding to specify the file encoding"), EXIT_ERROR)
+    res = decode_with_bom(data, enc)
+    if res is None:
+        return emit(err_json("strict decode failed as %s (fail-closed; nothing written)" % enc, EXIT_ERROR), EXIT_ERROR)
+    text, bom_kind = res
+    line_end = detect_line_ending(text)
+    if line_end == "mixed":
+        return emit(err_json("mixed line endings not supported for insert; normalize first (fail-closed; nothing written)", EXIT_ERROR), EXIT_ERROR)
+    end = "\r\n" if line_end == "crlf" else "\r" if line_end == "cr" else "\n"
+    rows = split_keepends(text)
+    if rows == []:
+        unmatched = [o["label"] for o in ops]
+        if not force:
+            return emit(err_json("%d op(s) unmatched; nothing written (fail-closed)" % len(unmatched), EXIT_UNMATCHED,
+                                 "use --force to apply matched ops anyway"), EXIT_UNMATCHED)
+        return emit({"ok": True, "applied": 0, "matches": [], "backup": None, "cleanup": None,
+                     "dryRun": False, "warnings": [{"label": l} for l in unmatched]}, EXIT_UNMATCHED)
+    applied = []
+    unmatched = []
+    ambiguous = None
+    for o in ops:
+        t = normalize_lf(o["text"])
+        parts = t.split("\n")
+        matches = []
+        for i in range(len(rows)):
+            c = rows[i][0].strip() if o["trim"] else rows[i][0]
+            a = o["anchor"].strip() if o["trim"] else o["anchor"]
+            if c == a:
+                matches.append(i)
+        if len(matches) == 0:
+            unmatched.append(o["label"])
+        elif len(matches) > 1 and o["occurrence"] is None:
+            ambiguous = ambiguous or o["label"]
+        elif o["occurrence"] is not None and o["occurrence"] > len(matches):
+            unmatched.append(o["label"])
+        else:
+            idx = matches[o["occurrence"] - 1] if o["occurrence"] is not None else matches[0]
+            applied.append((idx, o["where"], parts, o["label"]))
+    if ambiguous is not None:
+        return emit(err_json("ambiguous anchor (multiple matches, no occurrence): %s (fail-closed; nothing written)" % ambiguous, EXIT_ERROR), EXIT_ERROR)
+    if unmatched and not force:
+        return emit(err_json("%d op(s) unmatched; nothing written (fail-closed)" % len(unmatched), EXIT_UNMATCHED,
+                             "use --force to apply matched ops anyway"), EXIT_UNMATCHED)
+    seen = {}
+    for idx, where, parts, label in applied:
+        if idx in seen:
+            return emit(err_json("conflicting inserts on the same original line (%d); split into separate calls (fail-closed; nothing written)" % (idx + 1), EXIT_ERROR), EXIT_ERROR)
+        seen[idx] = label
+    if dry_run:
+        return emit({"ok": True, "dryRun": True, "applied": len(applied),
+                     "matches": [{"label": label, "line": idx + 1, "where": where} for idx, where, parts, label in applied],
+                     "unmatched": unmatched, "warnings": []}, EXIT_UNMATCHED if unmatched else EXIT_OK)
+    work = list(rows)
+    for idx, where, parts, label in sorted([(i, w, p, l) for i, w, p, l in applied], key=lambda t: t[0], reverse=True):
+        if where == "after" and work[idx][1] == "":
+            work[idx] = (work[idx][0], end)
+        k = 0
+        for part in parts:
+            if where == "before":
+                work.insert(idx + k, (part, end))
+            else:
+                work.insert(idx + 1 + k, (part, end))
+            k += 1
+    new_text = "".join(content + term for content, term in work)
+    out_enc = enc
+    out_bom = bom_kind if bom_kind != "none" else "none"
+    payload = encode_with_bom(new_text, out_enc, out_bom)
+    if payload is None:
+        return emit(err_json("strict encode failed as %s (fail-closed; nothing written)" % out_enc, EXIT_ERROR), EXIT_ERROR)
+    if verbose:
+        verbose_hex(data, "original")
+        verbose_hex(payload, "result")
+    try:
+        write_with_backup(path, payload, backup=True)
+    except OSError as e:
+        return emit(err_json("write failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+    backup_final, cleanup, damaged = post_write_cleanup(path, new_text, out_enc, keep_backup)
+    warnings = [{"label": l} for l in unmatched] if unmatched else []
+    return emit({"ok": True, "applied": len(applied),
+                 "matches": [{"label": label, "line": idx + 1, "where": where} for idx, where, parts, label in applied],
+                 "backup": backup_final, "cleanup": cleanup, "damaged": damaged,
+                 "dryRun": False, "warnings": warnings}, EXIT_UNMATCHED if unmatched else EXIT_OK)
+
+
 def cmd_convert(path, to, from_enc, bom_policy, line_ending, dry_run, keep_backup):
     if not is_regular_file(path):
         return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
@@ -901,6 +1052,8 @@ subcommands:
           [--line N] [--from-line N --to-line M]
   replace <file> <ops-json> | --from-file <ops-file>
           [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
+  insert <file> <ops-json> | --from-file <ops-file>
+          [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
   convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep]
           [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]
   verify <file> [--encoding <enc>]
@@ -953,6 +1106,7 @@ SUB_HELP = {
  "find": "enc find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  Locate literal substring (non-regex) in decoded text; output JSON matchCount/matches.\n",
  "read": "enc read <file> [--out <utf8-path>] [--encoding <enc>] [--line N] [--from-line N --to-line M]\n  Decode to UTF-8 (stdout or --out); does not modify the file. With line args, output only selected lines.\n",
  "replace": "enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n",
+ "insert": "enc insert <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Insert whole line(s) before/after the line matching an anchor (whole-line match); byte-safe, backup/verify like replace.\n",
  "convert": "enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n",
  "verify": "enc verify <file> [--encoding <enc>]\n  Scan for U+FFFD / ? density / mojibake patterns; suggests restore or cleanup (conditional on .orig).\n",
  "cleanup": "enc cleanup <file>\n  Remove <file>.orig single-step snapshot (maintenance).\n",
@@ -967,7 +1121,7 @@ def sub_help(name):
     return EXIT_OK
 
 
-COMMANDS = {"detect", "find", "read", "replace", "convert", "verify", "cleanup", "gc"}
+COMMANDS = {"detect", "find", "read", "replace", "insert", "convert", "verify", "cleanup", "gc"}
 
 def main(argv):
     if not argv:
@@ -1062,6 +1216,20 @@ def main(argv):
         if len(args) != 2:
             return emit(err_json("replace requires <file> <ops-json> or --from-file <ops-file>", EXIT_ERROR), EXIT_ERROR)
         return cmd_replace(args[0], args[1], None, enc, dry is not None, kb is not None, verb is not None, force is not None)
+    if sub == "insert":
+        args, ff = take_option(args, "--from-file", True)
+        args, enc = take_option(args, "--encoding", True)
+        args, dry = take_option(args, "--dry-run")
+        args, kb = take_option(args, "--keep-backup")
+        args, verb = take_option(args, "--verbose")
+        args, force = take_option(args, "--force")
+        if ff is not None:
+            if len(args) != 1:
+                return emit(err_json("insert --from-file requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
+            return cmd_insert(args[0], None, ff, enc, dry is not None, kb is not None, verb is not None, force is not None)
+        if len(args) != 2:
+            return emit(err_json("insert requires <file> <ops-json> or --from-file <ops-file>", EXIT_ERROR), EXIT_ERROR)
+        return cmd_insert(args[0], args[1], None, enc, dry is not None, kb is not None, verb is not None, force is not None)
     if sub == "convert":
         args, to = take_option(args, "--to", True)
         args, frm = take_option(args, "--from", True)

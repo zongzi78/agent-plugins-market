@@ -758,6 +758,36 @@ function loadOps(opsArg, fromFile) {
   }
   return { ops: cleaned };
 }
+function loadInsertOps(opsArg, fromFile) {
+  let raw;
+  if (fromFile) {
+    if (!fs.existsSync(fromFile)) return { err: 'ops file not found: ' + fromFile };
+    try { raw = fs.readFileSync(fromFile, 'utf8'); } catch (e) { return { err: 'cannot read ops file: ' + e.message }; }
+  } else raw = opsArg;
+  let ops;
+  try { ops = JSON.parse(raw); } catch (e) { return { err: 'ops JSON parse error: ' + e.message }; }
+  if (!Array.isArray(ops)) return { err: 'ops must be a JSON array' };
+  const cleaned = [];
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i];
+    if (!op || typeof op !== 'object') return { err: 'ops[' + i + '] must be a JSON object' };
+    if (typeof op.anchor !== 'string' || op.anchor === '') return { err: 'ops[' + i + '] must have a non-empty string anchor' };
+    if (op.anchor.indexOf('\r') >= 0 || op.anchor.indexOf('\n') >= 0) return { err: 'ops[' + i + '].anchor must not contain line breaks' };
+    if (typeof op.text !== 'string') return { err: 'ops[' + i + '] must have a string text' };
+    const where = op.where === undefined ? 'before' : op.where;
+    if (where !== 'before' && where !== 'after') return { err: 'ops[' + i + '].where must be before|after' };
+    let occurrence = op.occurrence;
+    if (occurrence !== undefined) {
+      if (typeof occurrence !== 'number' || !Number.isInteger(occurrence) || occurrence <= 0) return { err: 'ops[' + i + '].occurrence must be a positive integer' };
+    }
+    const trim = op.trim === undefined ? false : op.trim;
+    if (typeof trim !== 'boolean') return { err: 'ops[' + i + '].trim must be a boolean' };
+    if (op.label !== undefined && typeof op.label !== 'string') return { err: 'ops[' + i + '].label must be a string' };
+    cleaned.push({ anchor: op.anchor, text: op.text, where: where, occurrence: occurrence, trim: trim, label: op.label === undefined ? 'op' + (i + 1) : op.label });
+  }
+  return { ops: cleaned };
+}
+
 function applyOps(text, ops) {
   const counts = ops.map(() => 0);
   const whole = ops.some(o => normalizeLf(o.search).indexOf('\n') >= 0 || normalizeLf(o.replace).indexOf('\n') >= 0);
@@ -978,6 +1008,77 @@ function cmdReplace(p, opsArg, fromFile, explicit, dryRun, keepBackup, verbose, 
     backup: backupFinal, cleanup: cleanup, damaged: damaged, dryRun: false, warnings: warnings },
     unmatched.length ? EXIT_UNMATCHED : EXIT_OK);
 }
+function cmdInsert(p, opsArg, fromFile, explicit, dryRun, keepBackup, verbose, force) {
+  if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
+  const lo = loadInsertOps(opsArg, fromFile);
+  if (lo.err) return emit(errJson(lo.err, EXIT_ERROR), EXIT_ERROR);
+  const ops = lo.ops;
+  if (ops.length === 0) return emit({ ok: true, applied: 0, matches: [], backup: null, cleanup: null, dryRun: false, warnings: [] }, EXIT_OK);
+  let data;
+  try { data = readBytes(p); } catch (e) { return emit(errJson('IO error: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+  const r = resolveSourceEncoding(p, data, explicit);
+  if (r.err) return emit(errJson(r.err, EXIT_ERROR, 'use --encoding to specify the file encoding'), EXIT_ERROR);
+  const text = decodeWithBom(data, r.enc);
+  if (text === null) return emit(errJson('strict decode failed as ' + r.enc + ' (fail-closed; nothing written)', EXIT_ERROR), EXIT_ERROR);
+  const lineEnd = detectLineEnding(text);
+  if (lineEnd === 'mixed') return emit(errJson('mixed line endings not supported for insert; normalize first (fail-closed; nothing written)', EXIT_ERROR), EXIT_ERROR);
+  const end = lineEnd === 'crlf' ? '\r\n' : lineEnd === 'cr' ? '\r' : '\n';
+  const rows = splitKeepends(text);
+  if (rows.length === 0) {
+    const unmatched = ops.map(o => o.label);
+    if (!force) return emit(errJson(unmatched.length + ' op(s) unmatched; nothing written (fail-closed)', EXIT_UNMATCHED, 'use --force to apply matched ops anyway'), EXIT_UNMATCHED);
+    return emit({ ok: true, applied: 0, matches: [], backup: null, cleanup: null, dryRun: false, warnings: unmatched.map(l => ({ label: l })) }, EXIT_UNMATCHED);
+  }
+  const applied = []; const unmatched = []; let ambiguous = null;
+  for (let oi = 0; oi < ops.length; oi++) {
+    const o = ops[oi];
+    const parts = normalizeLf(o.text).split('\n');
+    const matches = [];
+    for (let i = 0; i < rows.length; i++) {
+      const c = o.trim ? rows[i][0].trim() : rows[i][0];
+      const a = o.trim ? o.anchor.trim() : o.anchor;
+      if (c === a) matches.push(i);
+    }
+    if (matches.length === 0) unmatched.push(o.label);
+    else if (matches.length > 1 && o.occurrence === undefined) { if (ambiguous === null) ambiguous = o.label; }
+    else if (o.occurrence !== undefined && o.occurrence > matches.length) unmatched.push(o.label);
+    else {
+      const idx = o.occurrence !== undefined ? matches[o.occurrence - 1] : matches[0];
+      applied.push({ idx: idx, where: o.where, parts: parts, label: o.label });
+    }
+  }
+  if (ambiguous !== null) return emit(errJson('ambiguous anchor (multiple matches, no occurrence): ' + ambiguous + ' (fail-closed; nothing written)', EXIT_ERROR), EXIT_ERROR);
+  if (unmatched.length && !force) return emit(errJson(unmatched.length + ' op(s) unmatched; nothing written (fail-closed)', EXIT_UNMATCHED, 'use --force to apply matched ops anyway'), EXIT_UNMATCHED);
+  const seen = {};
+  for (let i = 0; i < applied.length; i++) {
+    const idx = applied[i].idx;
+    if (seen[idx] !== undefined) return emit(errJson('conflicting inserts on the same original line (' + (idx + 1) + '); split into separate calls (fail-closed; nothing written)', EXIT_ERROR), EXIT_ERROR);
+    seen[idx] = applied[i].label;
+  }
+  if (dryRun) return emit({ ok: true, dryRun: true, applied: applied.length, matches: applied.map(a => ({ label: a.label, line: a.idx + 1, where: a.where })), unmatched: unmatched, warnings: [] }, unmatched.length ? EXIT_UNMATCHED : EXIT_OK);
+  let work = rows.slice();
+  const sorted = applied.slice().sort((x, y) => y.idx - x.idx);
+  for (let i = 0; i < sorted.length; i++) {
+    const a = sorted[i];
+    if (a.where === 'after' && work[a.idx][1] === '') work[a.idx] = [work[a.idx][0], end];
+    let k = 0;
+    for (let j = 0; j < a.parts.length; j++) {
+      if (a.where === 'before') work.splice(a.idx + k, 0, [a.parts[j], end]);
+      else work.splice(a.idx + 1 + k, 0, [a.parts[j], end]);
+      k++;
+    }
+  }
+  const newText = work.map(x => x[0] + x[1]).join('');
+  const outBom = r.bom !== 'none' ? r.bom : 'none';
+  const payload = encodeWithBom(newText, r.enc, outBom);
+  if (payload === null) return emit(errJson('strict encode failed as ' + r.enc + ' (fail-closed; nothing written)', EXIT_ERROR), EXIT_ERROR);
+  if (verbose) { verboseHex(data, 'original'); verboseHex(payload, 'result'); }
+  try { writeWithBackup(p, payload, true); } catch (e) { return emit(errJson('write failed: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+  const [backupFinal, cleanup, damaged] = postWriteCleanup(p, newText, r.enc, keepBackup);
+  const warnings = unmatched.map(l => ({ label: l }));
+  return emit({ ok: true, applied: applied.length, matches: applied.map(a => ({ label: a.label, line: a.idx + 1, where: a.where })), backup: backupFinal, cleanup: cleanup, damaged: damaged, dryRun: false, warnings: warnings }, unmatched.length ? EXIT_UNMATCHED : EXIT_OK);
+}
+
 function cmdConvert(p, to, fromEnc, bomPolicy, lineEnding, dryRun, keepBackup) {
   if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
   if (!to) return emit(errJson('--to <encoding> is required', EXIT_ERROR), EXIT_ERROR);
@@ -1140,6 +1241,7 @@ const USAGE = 'usage: enc <subcommand> [options]\n' +
   '  detect <file>\n' +
   '  find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  read <file> [--out <utf8-path>] [--encoding <enc>]\n          [--line N] [--from-line N --to-line M]\n' +
   '  replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n' +
+  '  insert <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n' +
   '  convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n' +
   '  verify <file> [--encoding <enc>]\n' +
   '  cleanup <file>\n' +
@@ -1148,12 +1250,13 @@ const USAGE = 'usage: enc <subcommand> [options]\n' +
   '         help <subcommand>         show subcommand help\n' +
   '         <subcommand> --help       show subcommand help\n' +
   'Note: --no-backup was removed (bottom line: writes always make a backup).\n';
-const COMMANDS = ['detect', 'find', 'read', 'replace', 'convert', 'verify', 'cleanup', 'gc'];
+const COMMANDS = ['detect', 'find', 'read', 'replace', 'insert', 'convert', 'verify', 'cleanup', 'gc'];
 const SUB_HELP = {
   detect: 'enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/suggestedAction.\n',
   read: 'enc read <file> [--out <utf8-path>] [--encoding <enc>] [--line N] [--from-line N --to-line M]\n  Decode to UTF-8 (stdout or --out); does not modify the file. With line args, output only selected lines.\n',
   find: 'enc find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  Locate literal substring (non-regex) in decoded text; output JSON matchCount/matches.\n',
   replace: 'enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n',
+  insert: 'enc insert <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Insert whole line(s) before/after the line matching an anchor (whole-line match); byte-safe, backup/verify like replace.\n',
   convert: 'enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n',
   verify: 'enc verify <file> [--encoding <enc>]\n  Scan for U+FFFD / ? density / mojibake patterns; suggests restore or cleanup (conditional on .orig).\n',
   cleanup: 'enc cleanup <file>\n  Remove <file>.orig single-step snapshot (maintenance).\n',
@@ -1232,6 +1335,20 @@ function main(argv) {
     }
     if (args.length !== 2) return emit(errJson('replace requires <file> <ops-json> or --from-file <ops-file>', EXIT_ERROR), EXIT_ERROR);
     return cmdReplace(args[0], args[1], null, enc, dry, kb, verb, force);
+  }
+  if (sub === 'insert') {
+    let o = takeOption(args, '--from-file', true); args = o.rest; const ff = o.value;
+    o = takeOption(args, '--encoding', true); args = o.rest; const enc = o.value;
+    o = takeOption(args, '--dry-run'); args = o.rest; const dry = o.value !== undefined;
+    o = takeOption(args, '--keep-backup'); args = o.rest; const kb = o.value !== undefined;
+    o = takeOption(args, '--verbose'); args = o.rest; const verb = o.value !== undefined;
+    o = takeOption(args, '--force'); args = o.rest; const force = o.value !== undefined;
+    if (ff !== undefined) {
+      if (args.length !== 1) return emit(errJson('insert --from-file requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
+      return cmdInsert(args[0], null, ff, enc, dry, kb, verb, force);
+    }
+    if (args.length !== 2) return emit(errJson('insert requires <file> <ops-json> or --from-file <ops-file>', EXIT_ERROR), EXIT_ERROR);
+    return cmdInsert(args[0], args[1], null, enc, dry, kb, verb, force);
   }
   if (sub === 'convert') {
     let o = takeOption(args, '--to', true); args = o.rest; const to = o.value;

@@ -113,6 +113,19 @@ enc replace <file> --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep
 - 任一 op 未匹配 → 默认不写盘、退出码 2；`--force` 才写（且会在 warnings 里暴露未匹配项）。
 - 先 `--dry-run` 预览，再真正写盘。
 
+### insert
+```bash
+enc insert <file> <ops-json> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
+enc insert <file> --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
+```
+- **作用**：在 `anchor`（**整行**内容）匹配的那一行**前/后**插入一整行（或多行）；由工具生成/保留换行，避免手写 `\n` 出错。
+- **ops.json**（JSON 数组）：`anchor`（必填，整行内容，不得含 `\r`/`\n`）、`text`（必填，可为 `""` 表示空行，可含 `\n` 表示多行）、`where`（可选，`before`/`after`，默认 `before`）、`occurrence`（可选正整数，多命中时第几次）、`trim`（可选布尔，匹配时忽略首尾空白）、`label`（可选）。
+- **语义**：整行匹配；多命中且无 `occurrence` → 硬错误（exit 1，`--force` 不覆盖）；命中 0 行 → exit 2；`--force` 只跳过未匹配、应用已命中。
+- 插入行使用文件实际行尾（LF/CRLF）；mixed 行尾 fail-closed。
+- 与 `replace` 同走写路径：写前备份 → 写 → 内部 verify → 默认自动删 `.orig`。
+
+> **换行提示**：`enc replace` 的 `search`/`replace` 是**字面子串**、**不会自动补换行**；要在某行**前/后插入一整行**，**优先用 `enc insert`**。若用 `replace`，`replace` 必须带 `\n`（如 `"新内容\n### 2.3 xxx"`），或用跨行 `search`（进入整文本模式）。插入后用 `enc read` 读回确认行边界。
+
 ### convert
 ```bash
 enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]
