@@ -9,6 +9,7 @@
 | [ai-sdd](./ai-sdd/) | AI-SDD v3 规范驱动开发方法论 | Development |
 | [window-screenshot](./window-screenshot/) | Windows 窗口截图工具 | Productivity |
 | [encoding-safe-edit](./encoding-safe-edit/) | 文本编码安全编辑（GBK/GB18030/UTF-8/UTF-16） | Development |
+| [flag-wait](./flag-wait/) | 跨会话哨兵协调（等待标志/哨兵后接续） | Development |
 
 ## 安装
 
@@ -19,6 +20,7 @@
 /plugin install ai-sdd@selfskill-plugins
 /plugin install window-screenshot@selfskill-plugins
 /plugin install encoding-safe-edit@selfskill-plugins
+/plugin install flag-wait@selfskill-plugins
 ```
 
 ### OpenAI Codex

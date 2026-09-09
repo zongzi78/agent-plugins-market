@@ -1,0 +1,9 @@
+{
+  "name": "flag-wait",
+  "description": "跨会话哨兵协调 Skill：生产者原子发布哨兵，消费者等待文件出现并校验后接续工作（flag publish / flag wait / flag check）。",
+  "version": "1.0.0",
+  "author": {
+    "name": "zongzi78"
+  },
+  "license": "MIT"
+}

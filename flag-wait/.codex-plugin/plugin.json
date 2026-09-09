@@ -1,0 +1,23 @@
+{
+  "name": "flag-wait",
+  "version": "1.0.0",
+  "description": "跨会话哨兵协调 Skill：生产者原子发布哨兵，消费者等待文件出现并校验后接续工作（flag publish / flag wait / flag check）。",
+  "author": {
+    "name": "zongzi78"
+  },
+  "license": "MIT",
+  "keywords": ["flag-wait", "sentinel", "cross-session", "coordination"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Flag Wait",
+    "shortDescription": "跨会话哨兵协调工具",
+    "longDescription": "通过 JSON 哨兵文件协调两个 AI 会话：完成方发布哨兵，等待方等候出现并校验契约后继续；跨平台、低成本、零/少依赖。",
+    "developerName": "zongzi78",
+    "category": "Development",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "等待另一个会话完成后再继续",
+      "等 succ.flag 出现后继续工作"
+    ]
+  }
+}

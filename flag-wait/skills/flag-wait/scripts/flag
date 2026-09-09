@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# flag - flag-wait launcher (bash/sh: Git Bash / WSL / Linux / macOS)
+# Zero-dependency launcher: probe a usable runtime by EXECUTING --version,
+# then forward all args to flag.py.
+# Candidate order: uv -> python3 -> python.
+#   flag selfcheck                          -> runtime list (handled natively)
+#   flag --runtime auto|uv|python3|python <subcommand> [options...]
+set -u
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+runtime="auto"
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --runtime)
+      shift
+      if [ $# -gt 0 ]; then runtime="$1"; else runtime=""; fi
+      ;;
+    --runtime=*)
+      runtime="${1#--runtime=}"
+      ;;
+    *)
+      args+=("$1")
+      ;;
+  esac
+  shift
+done
+
+case "$runtime" in
+  auto|uv|python3|python) ;;
+  *)
+    echo '{"ok":false,"error":"invalid --runtime value; use auto|uv|python3|python","exitCode":1,"hint":null}'
+    exit 1
+    ;;
+esac
+
+probe_out() { "$@" 2>&1; }
+is_python() {
+  local out
+  out="$(probe_out "$@" --version)"
+  [ $? -eq 0 ] && echo "$out" | grep -qE 'Python [0-9]+\.[0-9]+'
+}
+is_uv() {
+  local tmp="${TMPDIR:-/tmp}"
+  export UV_CACHE_DIR="$tmp/uv-cache"
+  export UV_PYTHON_INSTALL_DIR="$tmp/uv-python"
+  export UV_PYTHON_CACHE_DIR="$tmp/uv-pycache"
+  local out
+  out="$(probe_out uv run --no-project python --version)"
+  [ $? -eq 0 ] && echo "$out" | grep -qE 'Python [0-9]+\.[0-9]+'
+}
+
+if [ ${#args[@]} -gt 0 ] && [ "${args[0]}" = "selfcheck" ]; then
+  uv_ok="false"; py3_ok="false"; py_ok="false"; sel=""
+  if is_uv; then uv_ok="true"; fi
+  if is_python python3; then py3_ok="true"; fi
+  if is_python python; then py_ok="true"; fi
+  if [ "$uv_ok" = "true" ]; then sel="uv"; elif [ "$py3_ok" = "true" ]; then sel="python3"; elif [ "$py_ok" = "true" ]; then sel="python"; fi
+  if [ -n "$sel" ]; then ok="true"; else ok="false"; fi
+  cat <<EOF
+{"ok":$ok,"selectedRuntime":"$sel","message":null,"runtimes":{"uv":{"usable":$uv_ok},"python3":{"usable":$py3_ok},"python":{"usable":$py_ok}}}
+EOF
+  exit 0
+fi
+
+if [ "$runtime" = "auto" ]; then
+  if is_uv; then exec uv run --no-project python "$DIR/flag.py" "${args[@]}"; fi
+  if is_python python3; then exec python3 "$DIR/flag.py" "${args[@]}"; fi
+  if is_python python; then exec python "$DIR/flag.py" "${args[@]}"; fi
+  echo '{"ok":false,"error":"no usable runtime (uv/python3/python all unavailable)","exitCode":1,"hint":"install Python, or use --runtime to force"}'
+  exit 1
+fi
+if [ "$runtime" = "uv" ]; then
+  if is_uv; then exec uv run --no-project python "$DIR/flag.py" "${args[@]}"; fi
+  echo '{"ok":false,"error":"no usable runtime uv","exitCode":1,"hint":"install uv, or use --runtime auto"}'
+  exit 1
+fi
+if [ "$runtime" = "python3" ]; then
+  if is_python python3; then exec python3 "$DIR/flag.py" "${args[@]}"; fi
+  echo '{"ok":false,"error":"no usable runtime python3","exitCode":1,"hint":"install python3, or use --runtime auto"}'
+  exit 1
+fi
+if [ "$runtime" = "python" ]; then
+  if is_python python; then exec python "$DIR/flag.py" "${args[@]}"; fi
+  echo '{"ok":false,"error":"no usable runtime python","exitCode":1,"hint":"install python, or use --runtime auto"}'
+  exit 1
+fi
