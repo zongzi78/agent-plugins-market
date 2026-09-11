@@ -12,6 +12,10 @@
 - [6. 场景 F：事后验证与备份恢复](#6-场景-f事后验证与备份恢复)
 - [7. 场景 G：dry-run 与批量替换](#7-场景-gdry-run-与批量替换)
 - [8. 场景 H：看似 UTF-8 的普通文件被中文 Windows 默认 ANSI 写坏](#8-场景-h看似-utf-8-的普通文件被中文-windows-默认-ansi-写坏)
+- [9. 场景 I：定位文本 + 按行读取（find + read 行范围）](#9-场景-i定位文本--按行读取find--read-行范围)
+- [10. 场景 J：在某行前/后插入一整行（enc insert）](#10-场景-j在某行前后插入一整行enc-insert)
+- [11. 场景 K：新建文件并一次性写入全文（enc create + 跨行 replace）](#11-场景-k新建文件并一次性写入全文enc-create--跨行-replace)
+- [12. 场景 L：新建文件并增量构建（哨兵当游标 + 收尾）](#12-场景-l新建文件并增量构建哨兵当游标--收尾)
 
 ## 1. 场景 A：修改 GBK 的 C/C++ 源文件（最常见事故）
 
@@ -185,3 +189,49 @@ $ENC insert src/notes.md --from-file insert.json
 ```
 
 要点：`enc insert` 与 `enc replace` 同走写路径（备份/verify/自动清理 `.orig`）；`enc replace` 是字面替换、**不自动补换行**，插入整行请优先用 `enc insert`。
+
+## 11. 场景 K：新建文件并一次性写入全文（enc create + 跨行 replace）
+
+```bash
+ENC="<SKILL_DIR>/scripts/enc"
+
+# 1) 新建文件：只写入哨兵（锚点 + “未完成”自曝标记），不接受内容
+$ENC create config.ini --line-ending crlf
+
+# 2) 用一条跨行 replace 把「哨兵 + 行尾」替换成全文（跨行 op 走整文本模式）
+#    首次写入非 ASCII 内容时必须显式 --encoding
+cat > ops.json <<'EOF'
+[
+  {"search":"__ENC_PLACEHOLDER__\r\n","replace":"[server]\r\nhost = 127.0.0.1\r\n","label":"full"}
+]
+EOF
+$ENC replace config.ini --from-file ops.json --encoding gbk --dry-run
+$ENC replace config.ini --from-file ops.json --encoding gbk
+$ENC verify config.ini
+```
+
+要点：`create` 不接收内容、也不接收 `--encoding`；纯 ASCII 文件 `detect` 只能给 `ascii/low`，**首次写入非 ASCII 内容必须显式 `--encoding`**（漏给会 fail-closed，不会静默写坏）。
+
+## 12. 场景 L：新建文件并增量构建（哨兵当游标 + 收尾）
+
+```bash
+ENC="<SKILL_DIR>/scripts/enc"
+
+# 1) 新建：哨兵独占一行
+$ENC create notes.md
+
+# 2) 反复「在哨兵之前插入一行」＝ 追加；哨兵始终留在末行充当游标
+cat > ins.json <<'EOF'
+[{"anchor":"__ENC_PLACEHOLDER__","where":"before","text":"第一行","label":"a"}]
+EOF
+$ENC insert notes.md --from-file ins.json --encoding utf-8
+
+# 3) 收尾：把「哨兵 + 行尾」替换为空串，避免留下多余空行
+cat > fin.json <<'EOF'
+[{"search":"__ENC_PLACEHOLDER__\n","replace":"","label":"finish"}]
+EOF
+$ENC replace notes.md --from-file fin.json --encoding utf-8
+$ENC find notes.md __ENC_PLACEHOLDER__   # 期望 matchCount: 0
+```
+
+要点：哨兵只是**锚点**与“未完成”标记；`verify` **不**检测哨兵（避免与本 skill 自身文档冲突），交付前用 `enc find <file> __ENC_PLACEHOLDER__` 自查即可。

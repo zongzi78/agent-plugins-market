@@ -17,6 +17,13 @@ const HINT_UTF32 = 'UTF-32 BOM detected but unsupported; convert with an externa
 const HINT_CODECS = ['big5', 'shift_jis', 'euc_jp', 'euc_kr', 'cp1252'];
 const MOJIBAKE_PATTERNS = ['锟斤拷', '锘', '鈥', 'Ã©', 'Ã¤'];
 const DEFAULT_Q_RATIO = 0.05;
+// create（新建文件）与载体（sidecar）契约常量（决策文档 D-02..D-05 / D-09..D-11）
+const SENTINEL = '__ENC_PLACEHOLDER__';
+const CREATE_HINT_EXISTS = 'create only creates new files; use enc replace / enc insert to modify an existing file';
+const CREATE_HINT_PARENT = 'create does not create directories; create the parent directory first';
+const CREATE_HINT_OPTS = 'create takes only --line-ending / --bom / --dry-run';
+const SIDE_HINT_UTF16 = 'sidecar starts with a UTF-16 BOM; save it as UTF-8 (BOM optional) and retry';
+const SIDE_HINT_UTF8 = 'sidecar must be UTF-8; if it was written as GBK/ANSI, re-save it as UTF-8 (BOM optional) and retry';
 
 // ---------------- codec primitives (verified against Python) ----------------
 function slotOf(lead, trail) { return (lead - 0x81) * 190 + (trail < 0x80 ? trail - 0x40 : trail - 0x80 + 63); }
@@ -733,11 +740,27 @@ function encodeWithBom(text, enc, bom) {
   if (out === null) return null;
   return Buffer.concat([bomBytes(bom), out]);
 }
+function readUtf8Sidecar(p, label) {
+  if (!isRegularFile(p)) return { err: 'cannot read ' + label + ': not a regular file: ' + p, hint: null };
+  let buf;
+  try { buf = readBytes(p); } catch (e) { return { err: 'cannot read ' + label + ': ' + e.message, hint: null }; }
+  if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) buf = buf.slice(3);
+  const TD = (typeof TextDecoder !== 'undefined') ? TextDecoder : require('util').TextDecoder;
+  try {
+    return { text: new TD('utf-8', { fatal: true }).decode(buf), err: null, hint: null };
+  } catch (e) {
+    const utf16 = buf.length >= 2 && ((buf[0] === 0xFF && buf[1] === 0xFE) || (buf[0] === 0xFE && buf[1] === 0xFF));
+    return { err: label + ' is not valid UTF-8: ' + (e && e.message ? e.message : 'invalid byte sequence'),
+             hint: utf16 ? SIDE_HINT_UTF16 : SIDE_HINT_UTF8 };
+  }
+}
 function loadOps(opsArg, fromFile) {
   let raw;
   if (fromFile) {
-    if (!fs.existsSync(fromFile)) return { err: 'ops file not found: ' + fromFile };
-    try { raw = fs.readFileSync(fromFile, 'utf8'); } catch (e) { return { err: 'cannot read ops file: ' + e.message }; }
+    if (!isRegularFile(fromFile)) return { err: 'ops file not found: ' + fromFile, hint: null };
+    const sc = readUtf8Sidecar(fromFile, 'ops file');
+    if (sc.err) return { err: sc.err, hint: sc.hint };
+    raw = sc.text;
   } else raw = opsArg;
   let ops;
   try { ops = JSON.parse(raw); } catch (e) { return { err: 'ops JSON parse error: ' + e.message }; }
@@ -761,8 +784,10 @@ function loadOps(opsArg, fromFile) {
 function loadInsertOps(opsArg, fromFile) {
   let raw;
   if (fromFile) {
-    if (!fs.existsSync(fromFile)) return { err: 'ops file not found: ' + fromFile };
-    try { raw = fs.readFileSync(fromFile, 'utf8'); } catch (e) { return { err: 'cannot read ops file: ' + e.message }; }
+    if (!isRegularFile(fromFile)) return { err: 'ops file not found: ' + fromFile, hint: null };
+    const sc = readUtf8Sidecar(fromFile, 'ops file');
+    if (sc.err) return { err: sc.err, hint: sc.hint };
+    raw = sc.text;
   } else raw = opsArg;
   let ops;
   try { ops = JSON.parse(raw); } catch (e) { return { err: 'ops JSON parse error: ' + e.message }; }
@@ -874,10 +899,9 @@ function cmdFind(p, pattern, patternFile, explicit, ignoreCase, maxCount, verbos
   if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
   if (pattern === null) {
     if (!patternFile) return emit(errJson('find requires a pattern or --pattern-file', EXIT_ERROR), EXIT_ERROR);
-    let raw;
-    try { raw = fs.readFileSync(patternFile); } catch (e) { return emit(errJson('cannot read pattern file: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
-    if (raw.length >= 3 && raw[0] === 0xEF && raw[1] === 0xBB && raw[2] === 0xBF) raw = raw.slice(3);
-    try { pattern = raw.toString('utf8'); } catch (e) { return emit(errJson('pattern file is not valid UTF-8', EXIT_ERROR), EXIT_ERROR); }
+    const sc = readUtf8Sidecar(patternFile, 'pattern file');
+    if (sc.err) return emit(errJson(sc.err, EXIT_ERROR, sc.hint), EXIT_ERROR);
+    pattern = sc.text;
     pattern = pattern.replace(/(?:\r\n|\r|\n)$/, '');
   }
   if (!pattern) return emit(errJson('empty pattern', EXIT_ERROR), EXIT_ERROR);
@@ -970,7 +994,7 @@ function cmdRead(p, out, explicit, line, fromLine, toLine) {
 function cmdReplace(p, opsArg, fromFile, explicit, dryRun, keepBackup, verbose, force) {
   if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
   const lo = loadOps(opsArg, fromFile);
-  if (lo.err) return emit(errJson(lo.err, EXIT_ERROR), EXIT_ERROR);
+  if (lo.err) return emit(errJson(lo.err, EXIT_ERROR, lo.hint), EXIT_ERROR);
   const ops = lo.ops;
   let data;
   try { data = readBytes(p); } catch (e) { return emit(errJson('IO error: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
@@ -1011,7 +1035,7 @@ function cmdReplace(p, opsArg, fromFile, explicit, dryRun, keepBackup, verbose, 
 function cmdInsert(p, opsArg, fromFile, explicit, dryRun, keepBackup, verbose, force) {
   if (!isRegularFile(p)) return emit(errJson('not a regular file: ' + p, EXIT_ERROR), EXIT_ERROR);
   const lo = loadInsertOps(opsArg, fromFile);
-  if (lo.err) return emit(errJson(lo.err, EXIT_ERROR), EXIT_ERROR);
+  if (lo.err) return emit(errJson(lo.err, EXIT_ERROR, lo.hint), EXIT_ERROR);
   const ops = lo.ops;
   if (ops.length === 0) return emit({ ok: true, applied: 0, matches: [], backup: null, cleanup: null, dryRun: false, warnings: [] }, EXIT_OK);
   let data;
@@ -1115,6 +1139,35 @@ function cmdConvert(p, to, fromEnc, bomPolicy, lineEnding, dryRun, keepBackup) {
   return emit({ ok: true, from: r.enc, to: to, bom: targetBom, lineEnding: lineEnding, dryRun: false, backup: backupFinal, cleanup: cleanup, damaged: damaged }, EXIT_OK);
 }
 
+function cmdCreate(p, lineEnding, bom, dryRun) {
+  let exists = false;
+  try { fs.lstatSync(p); exists = true; } catch (e) { exists = false; }
+  if (exists) return emit(errJson('target already exists: ' + p, EXIT_ERROR, CREATE_HINT_EXISTS), EXIT_ERROR);
+  const parent = path.dirname(path.resolve(p));
+  let parentOk = false;
+  try { parentOk = fs.statSync(parent).isDirectory(); } catch (e) { parentOk = false; }
+  if (!parentOk) return emit(errJson('parent directory does not exist: ' + parent, EXIT_ERROR, CREATE_HINT_PARENT), EXIT_ERROR);
+  const end = lineEnding === 'crlf' ? '\r\n' : '\n';
+  let enc, bomKind;
+  if (bom === 'utf-16-le' || bom === 'utf-16-be') {
+    enc = bom;
+    bomKind = bom === 'utf-16-le' ? 'utf-16le' : 'utf-16be';
+  } else {
+    enc = 'utf-8';
+    bomKind = bom === 'none' ? 'none' : 'utf-8';
+  }
+  const text = SENTINEL + end;
+  const payload = encodeWithBom(text, enc, bomKind);
+  if (payload === null) return emit(errJson('strict encode failed as ' + enc + ' (fail-closed; nothing written)', EXIT_ERROR), EXIT_ERROR);
+  const rt = decodeWithBom(payload, enc);
+  if (rt === null || rt !== text) return emit(errJson('pre-write validation failed (fail-closed; nothing written)', EXIT_ERROR), EXIT_ERROR);
+  const out = { ok: true, created: !dryRun, file: path.resolve(p), sentinel: SENTINEL, encoding: enc, bom: bomKind,
+    lineEnding: lineEnding, bytes: payload.length, dryRun: !!dryRun, backup: null, cleanup: null,
+    damaged: verifyText(text, enc).damaged };
+  if (dryRun) return emit(out, EXIT_OK);
+  try { atomicWrite(p, payload); } catch (e) { return emit(errJson('write failed: ' + e.message, EXIT_ERROR), EXIT_ERROR); }
+  return emit(out, EXIT_OK);
+}
 function verifyText(text, encoding) {
   const fffdSamples = [];
   let fffdCount = 0;
@@ -1240,6 +1293,7 @@ function takeOption(args, flag, needValue) {
 const USAGE = 'usage: enc <subcommand> [options]\n' +
   '  detect <file>\n' +
   '  find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  read <file> [--out <utf8-path>] [--encoding <enc>]\n          [--line N] [--from-line N --to-line M]\n' +
+  '  create <file> [--line-ending lf|crlf] [--bom none|utf-8|utf-16-le|utf-16-be] [--dry-run]\n' +
   '  replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n' +
   '  insert <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n' +
   '  convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n' +
@@ -1250,11 +1304,12 @@ const USAGE = 'usage: enc <subcommand> [options]\n' +
   '         help <subcommand>         show subcommand help\n' +
   '         <subcommand> --help       show subcommand help\n' +
   'Note: --no-backup was removed (bottom line: writes always make a backup).\n';
-const COMMANDS = ['detect', 'find', 'read', 'replace', 'insert', 'convert', 'verify', 'cleanup', 'gc'];
+const COMMANDS = ['detect', 'find', 'read', 'create', 'replace', 'insert', 'convert', 'verify', 'cleanup', 'gc'];
 const SUB_HELP = {
   detect: 'enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/suggestedAction.\n',
   read: 'enc read <file> [--out <utf8-path>] [--encoding <enc>] [--line N] [--from-line N --to-line M]\n  Decode to UTF-8 (stdout or --out); does not modify the file. With line args, output only selected lines.\n',
   find: 'enc find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  Locate literal substring (non-regex) in decoded text; output JSON matchCount/matches.\n',
+  create: 'enc create <file> [--line-ending lf|crlf] [--bom none|utf-8|utf-16-le|utf-16-be] [--dry-run]\n  Create a new file containing only the ASCII sentinel line (anchor); fails if the target exists.\n',
   replace: 'enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n',
   insert: 'enc insert <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Insert whole line(s) before/after the line matching an anchor (whole-line match); byte-safe, backup/verify like replace.\n',
   convert: 'enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n',
@@ -1283,6 +1338,18 @@ function main(argv) {
   if (sub === 'detect') {
     if (args.length !== 1) return emit(errJson('detect requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
     return cmdDetect(args[0]);
+  }
+  if (sub === 'create') {
+    let o = takeOption(args, '--line-ending', true); args = o.rest; const le = o.value;
+    o = takeOption(args, '--bom', true); args = o.rest; const bom = o.value;
+    o = takeOption(args, '--dry-run'); args = o.rest; const dry = o.value !== undefined;
+    for (const a of args) {
+      if (a.startsWith('-')) return emit(errJson('create: unexpected option: ' + a, EXIT_ERROR, CREATE_HINT_OPTS), EXIT_ERROR);
+    }
+    if (args.length !== 1) return emit(errJson('create requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
+    if (le && le !== 'lf' && le !== 'crlf') return emit(errJson('--line-ending must be lf|crlf', EXIT_ERROR), EXIT_ERROR);
+    if (bom && ['none', 'utf-8', 'utf-16-le', 'utf-16-be'].indexOf(bom) < 0) return emit(errJson('--bom must be none|utf-8|utf-16-le|utf-16-be', EXIT_ERROR), EXIT_ERROR);
+    return cmdCreate(args[0], le || 'lf', bom || 'none', dry);
   }
   if (sub === 'read') {
     let o = takeOption(args, '--out', true); args = o.rest; const out = o.value;
@@ -1315,7 +1382,7 @@ function main(argv) {
       if (isNaN(maxCount) || maxCount <= 0 || !/^\d+$/.test(String(mc))) return emit(errJson('--max-count must be a positive integer', EXIT_ERROR), EXIT_ERROR);
     }
     if (pfile !== undefined) {
-      if (!fs.existsSync(pfile)) return emit(errJson('pattern file not found: ' + pfile, EXIT_ERROR), EXIT_ERROR);
+      if (!isRegularFile(pfile)) return emit(errJson('pattern file not found: ' + pfile, EXIT_ERROR), EXIT_ERROR);
       if (args.length !== 1) return emit(errJson('find --pattern-file requires exactly one <file>', EXIT_ERROR), EXIT_ERROR);
       return cmdFind(args[0], null, pfile, enc, ic, maxCount, verb);
     }
@@ -1386,5 +1453,5 @@ if (require.main === module) {
 module.exports = {
   decodeByEncoding, encodeByEncoding, decodeUTF8, decodeGBK, decodeGB18030,
   decodeUTF16LE, decodeUTF16BE, encodeUTF8, encodeUTF16LE, encodeUTF16BE,
-  encodeGBK, encodeGB18030, decodeHintOk, detectFile,
+  encodeGBK, encodeGB18030, decodeHintOk, detectFile, readUtf8Sidecar,
 };

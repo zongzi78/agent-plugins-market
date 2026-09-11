@@ -15,25 +15,31 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 # 1) 检测编码
 & $enc detect file.txt
 
-# 1.5) 定位文本 / 按行读取（只读，不修改文件）
+# 2) 定位文本 / 按行读取（只读，不修改文件）
 & $enc find file.txt "目标串" --ignore-case --max-count 5
 & $enc read file.txt --from-line 10 --to-line 20
 
-# 2) 安全替换（ops 写为 UTF-8 无 BOM 的 JSON，中文内容必须走 --from-file）
+# 3) 新建文件：只写入哨兵（锚点），内容随后用 replace/insert 写入；不接受 --encoding
+& $enc create new_file.txt --line-ending crlf
+#   整文写入：一条跨行 replace（search = 哨兵 + 行尾，replace = 全文）；增量构建：insert --where before（锚 = 哨兵），收尾把「哨兵 + 行尾」替换为 ""
+#   首次写入非 ASCII 内容时必须显式 --encoding（纯 ASCII 文件 detect 只能给 ascii/low）
+
+# 4) 安全替换（ops 写为 UTF-8 无 BOM 的 JSON，中文内容必须走 --from-file）
 & $enc replace file.txt --from-file ops.json --dry-run
 & $enc replace file.txt --from-file ops.json
+#   载体（ops / pattern 文件）必须是 UTF-8（可带 BOM，只剥开头一个）；非法字节 fail-closed（严格解码 + 可执行提示）
 
 # 写后自动验证，damaged:false 则自动清理 .orig，无需手动 cleanup
 # 需要保留快照用于人工确认时加 --keep-backup：
 #   & $enc replace file.txt --from-file ops.json --keep-backup
 
-# 2.5) 在匹配 anchor（整行）的行前/后插入一整行（自动换行，避免 replace 漏 \n 行合并）
+# 5) 在匹配 anchor（整行）的行前/后插入一整行（自动换行，避免 replace 漏 \n 行合并）
 & $enc insert file.txt --from-file ops.json
 
-# 3)（可选）事后复核
+# 6)（可选）事后复核
 & $enc verify file.txt
 
-# 4)（维护）清理历史/孤儿快照
+# 7)（维护）清理历史/孤儿快照
 & $enc gc <dir>
 
 # 完整命令面见：& $enc --help   （--no-backup 已移除，不会出现在帮助中）
@@ -43,9 +49,10 @@ $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 
 | 子命令 | 说明 |
 |--------|------|
-| `detect` | 输出编码、置信度、BOM、行尾、是否可安全直改 |
+| `detect` | 输出编码、置信度、BOM、行尾与 `decodeHints` / `suggestedAction`（不提供“可直改”豁免；写入一律走 enc） |
 | `find` | 按字面量在解码文本中定位子串，返回行/列与上下文；支持 `--ignore-case` / `--max-count` / `--pattern-file`（只读） |
 | `read` | 按原编码解码，以 UTF-8 输出，不修改原文件；支持 `--line N` / `--from-line N --to-line M` 行范围读取 |
+| `create` | 新建文件：只写入一行 ASCII 哨兵 `__ENC_PLACEHOLDER__`（作为 replace/insert 的锚点），不接受内容；目标必须不存在、父目录必须存在；支持 `--line-ending` / `--bom` / `--dry-run` |
 | `replace` | 按原编码搜索替换，保留原编码/BOM/行尾；默认事务化：写后验证通过自动清理 `.orig`，`--keep-backup` 保留快照 |
 | `insert` | 在匹配 `anchor`（整行）的那一行前/后插入一整行/多行；自动处理换行，避免 `replace` 漏 `\n` 导致行合并 |
 | `convert` | 转码，支持 BOM 与行尾策略；默认事务化：写后验证通过自动清理 `.orig` |

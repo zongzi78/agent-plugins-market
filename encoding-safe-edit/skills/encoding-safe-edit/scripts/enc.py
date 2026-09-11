@@ -34,6 +34,14 @@ HINT_CODECS = ("big5", "shift_jis", "euc_jp", "euc_kr", "cp1252")
 MOJIBAKE_PATTERNS = ("锟斤拷", "锘", "鈥", "Ã©", "Ã¤")
 DEFAULT_Q_RATIO = 0.05
 
+# create（新建文件）与载体（sidecar）契约常量（决策文档 D-02..D-05 / D-09..D-11）
+SENTINEL = "__ENC_PLACEHOLDER__"
+CREATE_HINT_EXISTS = "create only creates new files; use enc replace / enc insert to modify an existing file"
+CREATE_HINT_PARENT = "create does not create directories; create the parent directory first"
+CREATE_HINT_OPTS = "create takes only --line-ending / --bom / --dry-run"
+SIDE_HINT_UTF16 = "sidecar starts with a UTF-16 BOM; save it as UTF-8 (BOM optional) and retry"
+SIDE_HINT_UTF8 = "sidecar must be UTF-8; if it was written as GBK/ANSI, re-save it as UTF-8 (BOM optional) and retry"
+
 HINT_DUAL = "valid in both utf-8 and gbk; follow project policy"
 HINT_NUL = "contains many NUL bytes; maybe BOM-less UTF-16/UTF-32"
 HINT_BOM_CORRUPT = "带 BOM 但正文无法严格解码，可能已损坏"
@@ -232,7 +240,16 @@ def atomic_write(path, data):
         # POSIX：保留原文件权限位（mkstemp 默认 0600 会收窄 0755/0644）；Windows 不做（无意义且会干扰只读清理）
         if os.name != "nt":
             try:
-                os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+                mode = os.stat(path).st_mode & 0o7777
+            except OSError:
+                # 新文件（create 场景）：mkstemp 默认 0600 过窄，按进程 umask 推定常规权限
+                um = os.umask(0)
+                try:
+                    mode = 0o666 & ~um
+                finally:
+                    os.umask(um)
+            try:
+                os.chmod(tmp, mode)
             except OSError:
                 pass
         os.replace(tmp, path)
@@ -398,80 +415,99 @@ def resolve_source_encoding(path, data, explicit):
     return enc, bom_kind, None
 
 
+def read_utf8_sidecar(path, label):
+    """读取 UTF-8 侧面文件（ops / pattern 载体）→ (text, err, hint)。
+
+    契约（决策文档 D-09 / D-10 / D-11）：
+      - 允许并剥离**开头一个** UTF-8 BOM（EF BB BF）；中段 U+FEFF 保留。
+      - 严格 UTF-8 解码：非法字节 fail-closed（不猜测 GBK/ANSI），返回可执行 hint。
+      - 目标必须是常规文件（缺失 / 目录 / 特殊文件 → err）。
+    """
+    if not is_regular_file(path):
+        return None, "cannot read %s: not a regular file: %s" % (label, path), None
+    try:
+        raw = read_bytes(path)
+    except OSError as e:
+        return None, "cannot read %s: %s" % (label, e), None
+    if raw.startswith(codecs.BOM_UTF8):
+        raw = raw[3:]
+    try:
+        return raw.decode("utf-8"), None, None
+    except UnicodeDecodeError as e:
+        hint = SIDE_HINT_UTF16 if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else SIDE_HINT_UTF8
+        return None, "%s is not valid UTF-8: %s" % (label, e), hint
+
+
 def load_ops(ops_arg, from_file):
     if from_file:
         if not os.path.isfile(from_file):
-            return None, "ops file not found: %s" % from_file
-        try:
-            with open(from_file, "r", encoding="utf-8") as f:
-                raw = f.read()
-        except (OSError, UnicodeDecodeError) as e:
-            return None, "cannot read ops file: %s" % e
+            return None, "ops file not found: %s" % from_file, None
+        raw, rerr, rhint = read_utf8_sidecar(from_file, "ops file")
+        if rerr:
+            return None, rerr, rhint
     else:
         raw = ops_arg
     try:
         ops = json.loads(raw)
     except json.JSONDecodeError as e:
-        return None, "ops JSON parse error: %s" % e
+        return None, "ops JSON parse error: %s" % e, None
     if not isinstance(ops, list):
-        return None, "ops must be a JSON array"
+        return None, "ops must be a JSON array", None
     cleaned = []
     for i, op in enumerate(ops):
         if not isinstance(op, dict) or "search" not in op or not isinstance(op["search"], str) or op["search"] == "":
-            return None, "ops[%d] must be an object with non-empty string 'search'" % i
+            return None, "ops[%d] must be an object with non-empty string 'search'" % i, None
         if "replace" in op and not isinstance(op["replace"], str):
-            return None, "ops[%d].replace must be a string" % i
+            return None, "ops[%d].replace must be a string" % i, None
         if "label" in op and not isinstance(op["label"], str):
-            return None, "ops[%d].label must be a string" % i
+            return None, "ops[%d].label must be a string" % i, None
         cleaned.append({
             "search": op["search"],
             "replace": op.get("replace", ""),
             "label": op.get("label", "op%d" % (i + 1)),
         })
-    return cleaned, None
+    return cleaned, None, None
 
 
 def load_insert_ops(ops_arg, from_file):
     """解析 insert ops（JSON 数组）。校验 anchor/text/where/occurrence/trim/label。
-    返回 (ops, err)；fail-closed：任一字段非法 → err。"""
+    返回 (ops, err, hint)；fail-closed：任一字段非法 → err（hint 仅在载体解码失败时非空）。"""
     if from_file:
         if not os.path.isfile(from_file):
-            return None, "ops file not found: %s" % from_file
-        try:
-            with open(from_file, "r", encoding="utf-8") as f:
-                raw = f.read()
-        except (OSError, UnicodeDecodeError) as e:
-            return None, "cannot read ops file: %s" % e
+            return None, "ops file not found: %s" % from_file, None
+        raw, rerr, rhint = read_utf8_sidecar(from_file, "ops file")
+        if rerr:
+            return None, rerr, rhint
     else:
         raw = ops_arg
     try:
         ops = json.loads(raw)
     except json.JSONDecodeError as e:
-        return None, "ops JSON parse error: %s" % e
+        return None, "ops JSON parse error: %s" % e, None
     if not isinstance(ops, list):
-        return None, "ops must be a JSON array"
+        return None, "ops must be a JSON array", None
     cleaned = []
     for i, op in enumerate(ops):
         if not isinstance(op, dict):
-            return None, "ops[%d] must be a JSON object" % i
+            return None, "ops[%d] must be a JSON object" % i, None
         if "anchor" not in op or not isinstance(op["anchor"], str) or op["anchor"] == "":
-            return None, "ops[%d] must have a non-empty string 'anchor'" % i
+            return None, "ops[%d] must have a non-empty string 'anchor'" % i, None
         if "\r" in op["anchor"] or "\n" in op["anchor"]:
-            return None, "ops[%d].anchor must not contain line breaks" % i
+            return None, "ops[%d].anchor must not contain line breaks" % i, None
         if "text" not in op or not isinstance(op["text"], str):
-            return None, "ops[%d] must have a string 'text'" % i
+            return None, "ops[%d] must have a string 'text'" % i, None
         where = op.get("where", "before")
         if where not in ("before", "after"):
-            return None, "ops[%d].where must be 'before'|'after'" % i
+            return None, "ops[%d].where must be 'before'|'after'" % i, None
         occurrence = op.get("occurrence")
         if occurrence is not None:
             if not isinstance(occurrence, int) or isinstance(occurrence, bool) or occurrence <= 0:
-                return None, "ops[%d].occurrence must be a positive integer" % i
+                return None, "ops[%d].occurrence must be a positive integer" % i, None
         trim = op.get("trim", False)
         if not isinstance(trim, bool):
-            return None, "ops[%d].trim must be a boolean" % i
+            return None, "ops[%d].trim must be a boolean" % i, None
         if "label" in op and not isinstance(op["label"], str):
-            return None, "ops[%d].label must be a string" % i
+            return None, "ops[%d].label must be a string" % i, None
         cleaned.append({
             "anchor": op["anchor"],
             "text": op["text"],
@@ -480,7 +516,7 @@ def load_insert_ops(ops_arg, from_file):
             "trim": trim,
             "label": op.get("label", "op%d" % (i + 1)),
         })
-    return cleaned, None
+    return cleaned, None, None
 
 
 def apply_ops(text, ops):
@@ -569,16 +605,9 @@ def cmd_find(path, pattern, pattern_file, explicit, ignore_case, max_count, verb
     if pattern is None:
         if pattern_file is None:
             return emit(err_json("find requires a pattern or --pattern-file", EXIT_ERROR), EXIT_ERROR)
-        try:
-            raw = open(pattern_file, "rb").read()
-        except OSError as e:
-            return emit(err_json("cannot read pattern file: %s" % e, EXIT_ERROR), EXIT_ERROR)
-        if raw.startswith(codecs.BOM_UTF8):
-            raw = raw[3:]
-        try:
-            pattern = raw.decode("utf-8")
-        except UnicodeDecodeError as e:
-            return emit(err_json("pattern file is not valid UTF-8: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        pattern, perr, phint = read_utf8_sidecar(pattern_file, "pattern file")
+        if perr:
+            return emit(err_json(perr, EXIT_ERROR, phint), EXIT_ERROR)
         pattern = re.sub(r"(?:\r\n|\r|\n)$", "", pattern, count=1)
     if not pattern:
         return emit(err_json("empty pattern", EXIT_ERROR), EXIT_ERROR)
@@ -719,9 +748,9 @@ def cmd_read(path, out, explicit, line=None, from_line=None, to_line=None):
 def cmd_replace(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose, force):
     if not is_regular_file(path):
         return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
-    ops, oerr = load_ops(ops_arg, from_file)
+    ops, oerr, ohint = load_ops(ops_arg, from_file)
     if oerr:
-        return emit(err_json(oerr, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json(oerr, EXIT_ERROR, ohint), EXIT_ERROR)
     try:
         data = read_bytes(path)
     except OSError as e:
@@ -774,9 +803,9 @@ def cmd_replace(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbos
 def cmd_insert(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose, force):
     if not is_regular_file(path):
         return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
-    ops, oerr = load_insert_ops(ops_arg, from_file)
+    ops, oerr, ohint = load_insert_ops(ops_arg, from_file)
     if oerr:
-        return emit(err_json(oerr, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json(oerr, EXIT_ERROR, ohint), EXIT_ERROR)
     if len(ops) == 0:
         return emit({"ok": True, "applied": 0, "matches": [], "backup": None, "cleanup": None,
                      "dryRun": False, "warnings": []}, EXIT_OK)
@@ -930,6 +959,43 @@ def cmd_convert(path, to, from_enc, bom_policy, line_ending, dry_run, keep_backu
 
 
 
+def cmd_create(path, line_ending, bom, dry_run):
+    """新建文件：只写入固定 ASCII 哨兵（锚点），不做内容初始化（决策文档 D-02..D-05）。
+
+    护栏：目标必须不存在（与 replace/insert 的“必须存在”互为对偶）；父目录必须存在；
+    无 .orig（新文件没有写前状态）；写前验证通过才落盘；任何失败都不产生文件。
+    """
+    if os.path.lexists(path):
+        return emit(err_json("target already exists: %s" % path, EXIT_ERROR, CREATE_HINT_EXISTS), EXIT_ERROR)
+    parent = os.path.dirname(os.path.abspath(path))
+    if not os.path.isdir(parent):
+        return emit(err_json("parent directory does not exist: %s" % parent, EXIT_ERROR, CREATE_HINT_PARENT), EXIT_ERROR)
+    end = "\r\n" if line_ending == "crlf" else "\n"
+    if bom in ("utf-16-le", "utf-16-be"):
+        enc = bom
+        bom_kind = "utf-16le" if bom == "utf-16-le" else "utf-16be"
+    else:
+        enc = "utf-8"
+        bom_kind = "none" if bom == "none" else "utf-8"
+    text = SENTINEL + end
+    payload = encode_with_bom(text, enc, bom_kind)
+    if payload is None:
+        return emit(err_json("strict encode failed as %s (fail-closed; nothing written)" % enc, EXIT_ERROR), EXIT_ERROR)
+    rt = decode_with_bom(payload, enc)
+    if rt is None or rt[0] != text:
+        return emit(err_json("pre-write validation failed (fail-closed; nothing written)", EXIT_ERROR), EXIT_ERROR)
+    out = {"ok": True, "created": not dry_run, "file": os.path.abspath(path), "sentinel": SENTINEL,
+           "encoding": enc, "bom": bom_kind, "lineEnding": line_ending, "bytes": len(payload),
+           "dryRun": bool(dry_run), "backup": None, "cleanup": None, "damaged": verify_text(text, enc)["damaged"]}
+    if dry_run:
+        return emit(out, EXIT_OK)
+    try:
+        atomic_write(path, payload)
+    except OSError as e:
+        return emit(err_json("write failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+    return emit(out, EXIT_OK)
+
+
 def verify_text(text, encoding):
     """纯函数：对解码后文本做损坏判定（与 cmd_verify 口径一致，供 verify / 写后事务共用）。"""
     fffd_count = text.count("\ufffd")
@@ -1050,6 +1116,7 @@ subcommands:
   find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]
   read <file> [--out <utf8-path>] [--encoding <enc>]
           [--line N] [--from-line N --to-line M]
+  create <file> [--line-ending lf|crlf] [--bom none|utf-8|utf-16-le|utf-16-be] [--dry-run]
   replace <file> <ops-json> | --from-file <ops-file>
           [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
   insert <file> <ops-json> | --from-file <ops-file>
@@ -1105,6 +1172,7 @@ SUB_HELP = {
  "detect": "enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/suggestedAction.\n",
  "find": "enc find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  Locate literal substring (non-regex) in decoded text; output JSON matchCount/matches.\n",
  "read": "enc read <file> [--out <utf8-path>] [--encoding <enc>] [--line N] [--from-line N --to-line M]\n  Decode to UTF-8 (stdout or --out); does not modify the file. With line args, output only selected lines.\n",
+ "create": "enc create <file> [--line-ending lf|crlf] [--bom none|utf-8|utf-16-le|utf-16-be] [--dry-run]\n  Create a new file containing only the ASCII sentinel line (anchor); fails if the target exists.\n",
  "replace": "enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n",
  "insert": "enc insert <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Insert whole line(s) before/after the line matching an anchor (whole-line match); byte-safe, backup/verify like replace.\n",
  "convert": "enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n",
@@ -1121,7 +1189,7 @@ def sub_help(name):
     return EXIT_OK
 
 
-COMMANDS = {"detect", "find", "read", "replace", "insert", "convert", "verify", "cleanup", "gc"}
+COMMANDS = {"detect", "find", "read", "create", "replace", "insert", "convert", "verify", "cleanup", "gc"}
 
 def main(argv):
     if not argv:
@@ -1144,6 +1212,20 @@ def main(argv):
         if len(args) != 1:
             return emit(err_json("detect requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
         return cmd_detect(args[0])
+    if sub == "create":
+        args, le = take_option(args, "--line-ending", True)
+        args, bom = take_option(args, "--bom", True)
+        args, dry = take_option(args, "--dry-run")
+        for a in args:
+            if a.startswith("-"):
+                return emit(err_json("create: unexpected option: %s" % a, EXIT_ERROR, CREATE_HINT_OPTS), EXIT_ERROR)
+        if len(args) != 1:
+            return emit(err_json("create requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
+        if le is not None and le not in ("lf", "crlf"):
+            return emit(err_json("--line-ending must be lf|crlf", EXIT_ERROR), EXIT_ERROR)
+        if bom is not None and bom not in ("none", "utf-8", "utf-16-le", "utf-16-be"):
+            return emit(err_json("--bom must be none|utf-8|utf-16-le|utf-16-be", EXIT_ERROR), EXIT_ERROR)
+        return cmd_create(args[0], le or "lf", bom or "none", dry is not None)
     if sub == "read":
         args, out = take_option(args, "--out", True)
         args, enc = take_option(args, "--encoding", True)

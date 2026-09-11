@@ -38,6 +38,7 @@ description: 确保对任意文本文件的读取、编辑、写入不破坏原�
 - **写回保留原编码、原 BOM、原行尾**（mixed 行尾逐行保留）；带 BOM 文件禁止原生编辑。
 - 检测有歧义（ASCII / 双合法 / NUL-heavy / unknown）时**不许静默猜测**：看 detect 输出的 `decodeHints` 与项目约束（项目规则中声明的编码约定）决定，必要时用 `--encoding` 显式指定。
 - 项目默认编码以项目约束（项目规则中声明的编码约定）为准；本 skill 不假定任何"默认编码"。
+- **载体文件（ops / pattern）**：必须是 UTF-8（UTF-8 BOM 或无 BOM 均可，工具只剥离开头一个 BOM）；载体是一次性中间物——放系统临时目录、不进工程树、用完即删；非法字节 fail-closed（严格解码 + 可执行 hint），不靠调用方自觉。
 
 ## 定位脚本
 
@@ -73,14 +74,15 @@ Read `references/detection-notes.md` 了解置信度与歧义细节（只需在�
    - `encoding: unknown` → **禁止直接写**，按 `decodeHints` 或项目约束用 `--encoding` 显式指定后重试。
    - `confidence: medium`（双合法 / NUL-heavy）→ 看提示与项目约束；NUL-heavy 必须显式 `--encoding utf-16-le/be` 才能写。
 3. **定位 + read（需要找/看内容时）**：定位用 `enc find <file> <pattern>`（见下）；读取用 `enc read <file> [--out <临时文件>] [--line N | --from-line N --to-line M]`。输出为 UTF-8；用 `--out` 写临时文件再读，规避控制台乱码；只看某行/区间用行参数。中文环境必用 `--out` 或直接读 stdout 字节。
-4. **replace（修改）**：把 ops 写成 UTF-8 无 BOM 的 JSON 文件，然后：
+4. **create（新建文件）**：文件尚不存在时先用 `enc create <file> [--line-ending lf|crlf] [--bom none|utf-8|utf-16-le|utf-16-be] [--dry-run]` 创建（写入固定 ASCII 哨兵 `__ENC_PLACEHOLDER__` 作为锚点，**不接受内容**）。真实内容随后由 `enc replace`（整文一条跨行 op）或 `enc insert`（哨兵当游标）写入；收尾用 `replace` 把「哨兵 + 行尾」替换为空串。目标已存在 / 父目录不存在时 fail-closed。
+5. **replace（修改）**：把 ops 写成 UTF-8 无 BOM 的 JSON 文件，然后：
    ```bash
    enc replace <file> --from-file <ops.json> [--dry-run] [--verbose]
    ```
    ops 格式：`[{"search":"...","replace":"...","label":"..."}]`；search/replace 按文件当前编码解释（Agent 以 UTF-8 书写，工具负责编码）。
-5. **convert（转码）**：`enc convert <file> --to <目标编码> [--from <源编码>] [--bom add|remove|keep] [--line-ending keep|crlf|lf]`。源编码不在自动判定集（如 big5）时必须 `--from` 显式指定。Read `references/encoding-matrix.md` 了解各编码与平台默认行为差异（BOM/行尾策略拿不准时）。
-6. **verify（事后验证）**：`enc verify <file>`。确认 `damaged: false`（无 U+FFFD、无转码痕迹）；若 `damaged: true`，从 `<file>.orig` 恢复并重新编辑。
-7. **（可选）cleanup**：默认写后自动清理，**无需手动步骤**；仅在使用 `--keep-backup`、或 `damaged:true` 恢复后需要清理时用 `enc cleanup <file>`。
+6. **convert（转码）**：`enc convert <file> --to <目标编码> [--from <源编码>] [--bom add|remove|keep] [--line-ending keep|crlf|lf]`。源编码不在自动判定集（如 big5）时必须 `--from` 显式指定。Read `references/encoding-matrix.md` 了解各编码与平台默认行为差异（BOM/行尾策略拿不准时）。
+7. **verify（事后验证）**：`enc verify <file>`。确认 `damaged: false`（无 U+FFFD、无转码痕迹）；若 `damaged: true`，从 `<file>.orig` 恢复并重新编辑。
+8. **（可选）cleanup**：默认写后自动清理，**无需手动步骤**；仅在使用 `--keep-backup`、或 `damaged:true` 恢复后需要清理时用 `enc cleanup <file>`。
 
 ## 子命令速查
 
@@ -103,6 +105,17 @@ enc read <file> [--out <utf8-path>] [--encoding <enc>]
 ```
 按检测编码解码，内容以 UTF-8 输出到 stdout 或 `--out` 文件；**不修改原文件**。`--encoding` 用于默认候选集之外的显式编码（big5 / shift_jis / euc_jp / euc_kr / cp1252 等）。带行参数只看第 N 行或第 N..M 行（1-based，含端点）；`--line` 与 `--from-line/--to-line` 互斥，`--from-line`/`--to-line` 必须成对；`M` 超过总行数时截断到末行，空文件任何行参数报错，`--line`/`--from-line` 越界报错；输出保留原行尾；`--out` 写 UTF-8 无 BOM，stdout 输出 JSON 元数据。
 
+### create
+```bash
+enc create <file> [--line-ending lf|crlf] [--bom none|utf-8|utf-16-le|utf-16-be] [--dry-run]
+```
+- **作用**：**新建**文件（目标必须不存在；父目录必须存在）。写入一行固定 ASCII 哨兵 `__ENC_PLACEHOLDER__` 作为后续 replace/insert 的**锚点**；**不接收内容**（内容由 replace/insert 写）。
+- **两种用法**：① 一次性整文写入：一条**跨行** `replace`（`search` = 哨兵 + 行尾，`replace` = 全文；跨行 op 走整文本模式）；② 增量构建：把哨兵留作最后一行，反复 `insert --where before`（锚 = 哨兵）追加，收尾用 `replace` 把「哨兵 + 行尾」替换为 `""`。
+- **护栏**：目标已存在 → exit 1（hint 指回 replace/insert）；父目录不存在 → exit 1；**无 `.orig`**（新文件没有写前状态）；失败不留文件。
+- **参数**：`--line-ending`（默认 `lf`）与 `--bom`（默认 `none`）**有物理意义**（决定行尾与 BOM）；**无 `--encoding`** —— 哨兵是纯 ASCII，编码由**首次写入非 ASCII 内容**时的 `replace`/`insert` 的 `--encoding` 决定（纯 ASCII 文件 `detect` 只能给 `ascii/low`，漏给 `--encoding` 写中文会 fail-closed）。
+- 输出 JSON：`ok` / `created` / `file` / `sentinel` / `encoding` / `bom` / `lineEnding` / `bytes` / `dryRun` / `backup` / `cleanup` / `damaged`。
+- **哨兵不是检测机制**：它只是“未完成”的自曝标记；`verify` **不**检测哨兵（避免与本 skill 自身文档冲突）。
+
 ### replace
 ```bash
 enc replace <file> <ops-json> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
@@ -112,6 +125,7 @@ enc replace <file> --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep
 - search/replace 与文件**当前编码**一致；写回保留原编码 / BOM / 行尾。
 - 任一 op 未匹配 → 默认不写盘、退出码 2；`--force` 才写（且会在 warnings 里暴露未匹配项）。
 - 先 `--dry-run` 预览，再真正写盘。
+- **新文件**：先 `enc create <file>`（见上）造出哨兵锚点，再用本命令写入内容；对哨兵文件写入非 ASCII 内容时必须显式 `--encoding`。
 
 ### insert
 ```bash
@@ -123,6 +137,7 @@ enc insert <file> --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-
 - **语义**：整行匹配；多命中且无 `occurrence` → 硬错误（exit 1，`--force` 不覆盖）；命中 0 行 → exit 2；`--force` 只跳过未匹配、应用已命中。
 - 插入行使用文件实际行尾（LF/CRLF）；mixed 行尾 fail-closed。
 - 与 `replace` 同走写路径：写前备份 → 写 → 内部 verify → 默认自动删 `.orig`。
+- **新文件**：先用 `enc create <file>`（见上）造出哨兵锚点，再用本命令增量追加（哨兵当游标，收尾删掉哨兵）。
 
 > **换行提示**：`enc replace` 的 `search`/`replace` 是**字面子串**、**不会自动补换行**；要在某行**前/后插入一整行**，**优先用 `enc insert`**。若用 `replace`，`replace` 必须带 `\n`（如 `"新内容\n### 2.3 xxx"`），或用跨行 `search`（进入整文本模式）。插入后用 `enc read` 读回确认行边界。
 
