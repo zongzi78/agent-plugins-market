@@ -16,7 +16,7 @@ updated_by: human+AI
 |----|-----|
 | VCS | （git / SVN / 无 VCS） |
 | 仓库根 | （路径，无则 —） |
-| 留痕机制 | （git 提交 / `.ai/backups/` 改前备份，每文件最近 5 份） |
+| 留痕机制 | （git 提交 / change-backup 改前留痕，默认 `.ai/backups/`） |
 | 用户选择 | （快照模式 / git init 本地镜像 / 不适用；SVN 工作树 → 快照模式） |
 | 备注 | SVN 工作树内禁止 git init，最终提交由人类在 SVN 完成 |
 

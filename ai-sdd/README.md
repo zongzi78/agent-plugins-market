@@ -28,6 +28,12 @@ AI-SDD (AI-Assisted Spec-Driven Development) v3 方法论插件。
 | sdd-sync | `/sdd-sync` | 设计变更同步回 `.ai/doc/` |
 | sdd-archive | `/sdd-archive` | 归档完成的 change |
 
+### 底层能力
+
+| 技能 | 调用方式 | 说明 |
+|------|---------|------|
+| change-backup | `change-backup …`（命令行；由规则与上游技能调用） | 改前留痕底层能力：为既有文件建立可恢复的改前副本（布局 A、锚绑定、自动保留 10 份） |
+
 ## 快速开始
 
 1. 在项目中初始化 AI-SDD：`/ai-sdd-init`

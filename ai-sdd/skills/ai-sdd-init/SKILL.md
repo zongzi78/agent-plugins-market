@@ -45,9 +45,9 @@ description: >
      - **当前目录**：确认自身是否为仓库根
    - **四态判定与处理**：
      - **git 仓库** → 直接用，不改动；后续初始化输出标注"VCS：git"
-     - **SVN 工作树** → **检测态、非执行分支**：**不执行 git init**；提示"最终提交由人类在 SVN 完成"；安全层选择快照模式（此处仅记录该选择；改前备份由项目留痕规则执行，见 supplement-rules §6 与 sdd-apply「留痕纪律」）
+     - **SVN 工作树** → **检测态、非执行分支**：**不执行 git init**；提示"最终提交由人类在 SVN 完成"；安全层选择快照模式（此处仅记录该选择；改前留痕由 change-backup 技能执行，见 supplement-rules §6）
      - **无 VCS** → 用 AskUserQuestion 询问（默认光标：选项 1）：
-       - 1（推荐）**快照模式**：默认，不建仓，由 `.ai/backups/` 提供改前备份（此处仅创建目录并记录选择；改前备份由项目留痕规则执行，见 supplement-rules §6 与 sdd-apply「留痕纪律」）
+       - 1（推荐）**快照模式**：默认，不建仓，改前留痕由 change-backup 技能负责（此处仅记录选择，**不预创建空目录**；执行方式见 supplement-rules §6）
        - 2 **git init 本地镜像**：说明三点——本地历史只存本机、无远端、需播种 `.gitignore`（须包含 `.ai/backups/` 与 `.sync-backup/`，防止备份目录入库；模板见 `templates/gitignore.md`）
        - 3 取消
      - **嵌套仓库** → 警告 + 明确边界："外层 init 不纳入嵌套仓库（<路径>），避免 git embedded repo"（若当前已是 git 仓库且下方含嵌套 `.git`：仍按 git 分支执行，同时输出嵌套警告）
@@ -102,9 +102,9 @@ description: >
 
 **按 VCS 探测结果的条件动作**（在创建上述目录后执行）：
 
-- 无 VCS 且用户选择**快照模式**（选项 1）→ 额外创建 `.ai/backups/` 空目录（预留目录；改前备份由项目留痕规则执行，见 supplement-rules §6 与 sdd-apply「留痕纪律」）
+- 无 VCS 且用户选择**快照模式**（选项 1）→ **不预创建任何目录**（空目录曾是事故成因；目录由首次改前留痕时自行创建；执行方式见 supplement-rules §6）
 - 无 VCS 且用户选择 **git init**（选项 2）→ 在项目根执行 `git init`（本地镜像，无远端），并播种 `.gitignore`（内容从本 skill 的 `templates/gitignore.md` 复制，须包含 `.ai/backups/` 与 `.sync-backup/`）
-- SVN 工作树 → **不**执行 git init、不创建 `.ai/backups/`（仅记录选择；备份目录由首次改前备份时自动创建）
+- SVN 工作树 → **不**执行 git init、不预创建备份目录（仅记录选择；目录由首次改前留痕时自行创建）
 - git 仓库 → 不做任何额外动作
 
 ### 步骤 2：输出工具集成指引

@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# change-backup - change-backup launcher (bash / Git Bash / Linux / macOS)
+# Zero-dependency launcher: probes a usable runtime by EXECUTING --version,
+# then forwards all args to change-backup.py.
+# Candidate order: uv -> python3 -> python.
+#   change-backup selfcheck
+#   change-backup --runtime auto|uv|python3|python <subcommand> [options]
+# Keep this file pure ASCII.
+set -u
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+IMPL="$SELF_DIR/change-backup.py"
+CANDIDATES="uv python3 python"
+
+set_uv_cache() {
+  local t
+  t="${TMPDIR:-/tmp}"
+  export UV_CACHE_DIR="$t/uv/cache"
+  export UV_PYTHON_INSTALL_DIR="$t/uv/python"
+  export UV_PYTHON_CACHE_DIR="$t/uv/pycache"
+}
+
+probe() {
+  local n="$1" out code
+  out=""; code=1
+  case "$n" in
+    uv)      set_uv_cache; out="$(uv run --no-project python --version 2>&1)"; code=$? ;;
+    python3) out="$(python3 --version 2>&1)"; code=$? ;;
+    python)  out="$(python --version 2>&1)"; code=$? ;;
+    *)       return 1 ;;
+  esac
+  if [ "$code" -eq 0 ]; then
+    case "$out" in
+      *"Python "[0-9]*.[0-9]*) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+run_with() {
+  local n="$1"; shift
+  case "$n" in
+    uv)      exec uv run --no-project python "$IMPL" "$@" ;;
+    python3) exec python3 "$IMPL" "$@" ;;
+    python)  exec python "$IMPL" "$@" ;;
+  esac
+}
+
+emit_no_runtime() {
+  printf '{"ok":false,"error":"no usable python runtime (probed: %s)","exitCode":1,"hint":"install uv, or python3/python; refusing to work rather than working unsafely"}\n' "$1"
+}
+
+RUNTIME="auto"
+if [ "${1:-}" = "--runtime" ] && [ "$#" -ge 2 ]; then RUNTIME="$2"; shift 2; fi
+
+case "$RUNTIME" in
+  auto|uv|python3|python) ;;
+  *) printf '{"ok":false,"error":"unknown runtime: %s","exitCode":1,"hint":"use auto|uv|python3|python"}\n' "$RUNTIME"; exit 1 ;;
+esac
+
+if [ "${1:-}" = "selfcheck" ]; then
+  items=""; sel=""
+  for n in $CANDIDATES; do
+    if probe "$n"; then u=true; [ -z "$sel" ] && sel="$n"; else u=false; fi
+    [ -n "$items" ] && items="$items,"
+    items="$items{\"name\":\"$n\",\"usable\":$u}"
+  done
+  if [ -n "$sel" ]; then ok=true; seljson="\"$sel\""; else ok=false; seljson=null; fi
+  printf '{"ok":%s,"launcher":"change-backup","candidates":[%s],"selected":%s}\n' "$ok" "$items" "$seljson"
+  [ -n "$sel" ] && exit 0 || exit 1
+fi
+
+ORDER="$CANDIDATES"
+[ "$RUNTIME" != "auto" ] && ORDER="$RUNTIME"
+
+for n in $ORDER; do
+  if probe "$n"; then run_with "$n" "$@"; fi
+done
+
+emit_no_runtime "$ORDER"
+exit 1

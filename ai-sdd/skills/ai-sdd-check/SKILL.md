@@ -21,7 +21,7 @@ description: >
 1. 检查 `.ai/` 是否存在 → 如不存在，提示先运行 `/ai-sdd-init`
 2. 检查 `.ai/doc/` 下是否有 doc 文件 → 如为空，提示无文档可检查
 3. 检查 `.ai/doc/` 下 04-问题与改进.md 是否存在 → 如不存在，提示"建议运行 /ai-sdd-reverse 生成或手动创建"
-4. 校验项目留痕机制：读取 `.ai/project-log.md`「VCS 状态」，确认已填写且与项目实际机制一致（有 git → git 提交；无 git → `.ai/backups/` 改前备份目录已预留或可自动创建）；不一致/缺失 → 提示"项目留痕机制未就绪（project-log「VCS 状态」未填写或与实际不一致）"
+4. 校验项目留痕机制：① 读取 `.ai/project-log.md`「VCS 状态」，确认已填写且与项目实际一致（有 git → git 提交；无 git → 改前留痕机制）；② 无 git 时运行 `change-backup selfcheck` 校验机制可用性，不可用 → 提示"改前留痕机制不可用"；不一致/缺失 → 提示"项目留痕机制未就绪（project-log「VCS 状态」未填写或与实际不一致）"
 
 ## 执行流程
 
