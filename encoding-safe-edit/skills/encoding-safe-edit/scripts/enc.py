@@ -18,7 +18,7 @@ import bisect
 
 if sys.version_info >= (3, 7):
     try:
-        # newline="" disables \n -> \r\n translation on Windows (byte parity with enc.js)
+        # newline="" disables \n -> \r\n translation on Windows (byte-exact stdout/stderr)
         sys.stdout.reconfigure(encoding="utf-8", newline="")
         sys.stderr.reconfigure(encoding="utf-8", newline="")
     except Exception:
@@ -36,16 +36,16 @@ DEFAULT_Q_RATIO = 0.05
 
 # create（新建文件）与载体（sidecar）契约常量（决策文档 D-02..D-05 / D-09..D-11）
 SENTINEL = "__ENC_PLACEHOLDER__"
-CREATE_HINT_EXISTS = "create only creates new files; use enc replace / enc insert to modify an existing file"
-CREATE_HINT_PARENT = "create does not create directories; create the parent directory first"
-CREATE_HINT_OPTS = "create takes only --line-ending / --bom / --dry-run"
-SIDE_HINT_UTF16 = "sidecar starts with a UTF-16 BOM; save it as UTF-8 (BOM optional) and retry"
-SIDE_HINT_UTF8 = "sidecar must be UTF-8; if it was written as GBK/ANSI, re-save it as UTF-8 (BOM optional) and retry"
+CREATE_HINT_EXISTS = "create 仅用于新建文件；修改既有文件请用 enc replace / enc insert"
+CREATE_HINT_PARENT = "create 不会创建目录；请先创建父目录"
+CREATE_HINT_OPTS = "create 仅接受 --line-ending / --bom / --dry-run"
+SIDE_HINT_UTF16 = "载体以 UTF-16 BOM 开头；请另存为 UTF-8（BOM 可选）后重试"
+SIDE_HINT_UTF8 = "载体必须是 UTF-8；若以 GBK/ANSI 写入，请另存为 UTF-8（BOM 可选）后重试"
 
-HINT_DUAL = "valid in both utf-8 and gbk; follow project policy"
-HINT_NUL = "contains many NUL bytes; maybe BOM-less UTF-16/UTF-32"
+HINT_DUAL = "utf-8/gbk 双合法（写回须显式指定编码）"
+HINT_NUL = "包含大量 NUL 字节；可能是无 BOM 的 UTF-16/UTF-32"
 HINT_BOM_CORRUPT = "带 BOM 但正文无法严格解码，可能已损坏"
-HINT_UTF32 = "UTF-32 BOM detected but unsupported; convert with an external tool"
+HINT_UTF32 = "检测到 UTF-32 BOM，但不受支持；请先用外部工具转码"
 
 
 # ---------------------------------------------------------------- 基础工具
@@ -287,7 +287,7 @@ def detect_file(path):
         "fffdCount": 0,
         "asciiOnly": True,
         "decodeHints": [],
-        "suggestedAction": "unknown: ask",
+        "suggestedAction": "unknown：请询问",
     }
     # ① BOM
     if bom_kind in ("utf-32le", "utf-32be"):
@@ -305,12 +305,12 @@ def detect_file(path):
             d["confidence"] = "high"
             d["lineEnding"] = detect_line_ending(t)
             d["fffdCount"] = t.count("\ufffd")
-            d["suggestedAction"] = "use replace tool" if bom_kind == "utf-8" else "use replace/convert tool"
+            d["suggestedAction"] = "可用 replace" if bom_kind == "utf-8" else "可用 replace/convert"
         else:
             d["encoding"] = {"utf-8": "utf-8", "utf-16le": "utf-16le", "utf-16be": "utf-16be"}[bom_kind]
             d["confidence"] = "medium"
             d["decodeHints"] = [HINT_BOM_CORRUPT]
-            d["suggestedAction"] = "use replace tool / follow project policy"
+            d["suggestedAction"] = "可用 replace；请遵循项目约定"
         return d
     # ② NUL 密度全局预检
     nul_heavy = len(data) > 0 and (data.count(0) / len(data)) > 0.01
@@ -322,9 +322,9 @@ def detect_file(path):
         d["asciiOnly"] = True
         if nul_heavy:
             d["decodeHints"] = [HINT_NUL]
-            d["suggestedAction"] = "use replace/convert tool with explicit --encoding"
+            d["suggestedAction"] = "请用 replace/convert 并显式指定 --encoding"
         else:
-            d["suggestedAction"] = "use replace tool"
+            d["suggestedAction"] = "replace 可用；引入非 ASCII 时须显式指定编码"
         if data == b"":
             d["lineEnding"] = "unknown"
         else:
@@ -339,15 +339,15 @@ def detect_file(path):
         if gbk_ok:
             d["confidence"] = "medium"
             d["decodeHints"] = [HINT_DUAL]
-            d["suggestedAction"] = "use replace tool / follow project policy"
+            d["suggestedAction"] = "写回须显式指定编码（utf-8/gbk 双合法）；读取不受影响"
         else:
             d["confidence"] = "high"
-            d["suggestedAction"] = "use replace tool"
+            d["suggestedAction"] = "可用 replace"
         d["lineEnding"] = detect_line_ending(data.decode("utf-8", errors="strict"))
         d["fffdCount"] = data.decode("utf-8", errors="strict").count("\ufffd")
         if nul_heavy:
             d["confidence"] = "medium"
-            d["suggestedAction"] = "use replace/convert tool with explicit --encoding"
+            d["suggestedAction"] = "请用 replace/convert 并显式指定 --encoding"
             d["decodeHints"] = [HINT_NUL]
         return d
     # ⑤ 严格 GBK
@@ -359,9 +359,9 @@ def detect_file(path):
         d["fffdCount"] = data.decode("gbk", errors="strict").count("\ufffd")
         if nul_heavy:
             d["decodeHints"] = [HINT_NUL]
-            d["suggestedAction"] = "use replace/convert tool with explicit --encoding"
+            d["suggestedAction"] = "请用 replace/convert 并显式指定 --encoding"
         else:
-            d["suggestedAction"] = "use replace tool"
+            d["suggestedAction"] = "可用 replace"
         return d
     # ⑥ 严格 GB18030
     gb18030_ok = strict_decode(data, "gb18030") is not None
@@ -373,19 +373,19 @@ def detect_file(path):
         d["fffdCount"] = data.decode("gb18030", errors="strict").count("\ufffd")
         if nul_heavy:
             d["decodeHints"] = [HINT_NUL]
-            d["suggestedAction"] = "use replace/convert tool with explicit --encoding"
+            d["suggestedAction"] = "请用 replace/convert 并显式指定 --encoding"
         else:
-            d["suggestedAction"] = "use replace tool"
+            d["suggestedAction"] = "可用 replace"
         return d
     # ⑦ unknown
     d["encoding"] = "unknown"
     d["confidence"] = "low"
     d["asciiOnly"] = False
-    d["suggestedAction"] = "unknown: ask"
+    d["suggestedAction"] = "unknown：请询问"
     hints = []
     for c in HINT_CODECS:
         if strict_decode(data, c) is not None:
-            hints.append("could be %s" % c)
+            hints.append("可能是 %s" % c)
     if nul_heavy:
         hints.append(HINT_NUL)
     d["decodeHints"] = hints
@@ -393,26 +393,36 @@ def detect_file(path):
 
 
 # ---------------------------------------------------------------- 写路径公共
-def resolve_source_encoding(path, data, explicit):
+def resolve_source_encoding(path, data, explicit, for_write=False):
     """返回 (encoding, bom_kind, decode_error) 或 (None, None, errmsg)。
-    fail-closed 规则：unknown / NUL-heavy 未显式指定编码时，read/replace/convert 一律拒绝。"""
+    fail-closed 规则：unknown / NUL-heavy 未显式指定编码时，read/replace/convert 一律拒绝；
+    for_write=True 时，双合法（medium）未显式指定编码也拒绝（写回编码决策缺失，禁止静默选择）。"""
     if explicit:
         enc = normalize_explicit(explicit)
         if enc is None:
             low = explicit.lower()
             if low in ("utf-16", "utf_16", "utf16"):
-                return None, None, "encoding '%s' is ambiguous; use utf-16-le or utf-16-be" % explicit
-            return None, None, "encoding '%s' is not supported (UTF-32); convert with an external tool" % explicit
+                return None, None, "编码 '%s' 有歧义；请使用 utf-16-le 或 utf-16-be" % explicit
+            return None, None, "不支持编码 '%s'（UTF-32）；请先用外部工具转码" % explicit
         bom_kind, _ = bom_of(data)
         return enc, bom_kind, None
     det = detect_file(path)
     enc = det["encoding"]
     if enc == "unknown":
-        return None, None, "unknown encoding; specify --encoding explicitly"
+        return None, None, "编码未知；请显式指定 --encoding"
     if det["confidence"] == "medium" and HINT_NUL in det["decodeHints"]:
-        return None, None, "NUL-heavy file (possible BOM-less UTF-16/UTF-32); specify --encoding utf-16-le/be explicitly"
+        return None, None, "疑似无 BOM 的 UTF-16/UTF-32（NUL 密集）；请显式指定 --encoding utf-16-le/be"
+    if for_write and HINT_DUAL in det["decodeHints"]:
+        return None, None, "双合法文件（utf-8/gbk）；写入时必须显式指定 --encoding"
     bom_kind, _ = bom_of(data)
     return enc, bom_kind, None
+
+
+def check_write_encoding_decision(out_enc, text):
+    """写路径编码决策检查：ascii 文件将引入非 ASCII 时 fail-closed（禁止静默选编码）。"""
+    if out_enc == "ascii" and any(ord(c) > 127 for c in text):
+        return "ascii 文件将引入非 ASCII 内容（写回编码未决）；请按项目约定显式指定 --encoding（如 gbk / utf-8）"
+    return None
 
 
 def read_utf8_sidecar(path, label):
@@ -424,25 +434,25 @@ def read_utf8_sidecar(path, label):
       - 目标必须是常规文件（缺失 / 目录 / 特殊文件 → err）。
     """
     if not is_regular_file(path):
-        return None, "cannot read %s: not a regular file: %s" % (label, path), None
+        return None, "无法读取 %s：不是常规文件：%s" % (label, path), None
     try:
         raw = read_bytes(path)
     except OSError as e:
-        return None, "cannot read %s: %s" % (label, e), None
+        return None, "无法读取 %s：%s" % (label, e), None
     if raw.startswith(codecs.BOM_UTF8):
         raw = raw[3:]
     try:
         return raw.decode("utf-8"), None, None
     except UnicodeDecodeError as e:
         hint = SIDE_HINT_UTF16 if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else SIDE_HINT_UTF8
-        return None, "%s is not valid UTF-8: %s" % (label, e), hint
+        return None, "%s 不是合法 UTF-8：%s" % (label, e), hint
 
 
 def load_ops(ops_arg, from_file):
     if from_file:
         if not os.path.isfile(from_file):
-            return None, "ops file not found: %s" % from_file, None
-        raw, rerr, rhint = read_utf8_sidecar(from_file, "ops file")
+            return None, "ops 载体文件不存在：%s" % from_file, None
+        raw, rerr, rhint = read_utf8_sidecar(from_file, "ops 载体")
         if rerr:
             return None, rerr, rhint
     else:
@@ -450,17 +460,17 @@ def load_ops(ops_arg, from_file):
     try:
         ops = json.loads(raw)
     except json.JSONDecodeError as e:
-        return None, "ops JSON parse error: %s" % e, None
+        return None, "ops JSON 解析错误：%s" % e, None
     if not isinstance(ops, list):
-        return None, "ops must be a JSON array", None
+        return None, "ops 必须是 JSON 数组", None
     cleaned = []
     for i, op in enumerate(ops):
         if not isinstance(op, dict) or "search" not in op or not isinstance(op["search"], str) or op["search"] == "":
-            return None, "ops[%d] must be an object with non-empty string 'search'" % i, None
+            return None, "ops[%d] 必须含非空字符串 'search'" % i, None
         if "replace" in op and not isinstance(op["replace"], str):
-            return None, "ops[%d].replace must be a string" % i, None
+            return None, "ops[%d].replace 必须是字符串" % i, None
         if "label" in op and not isinstance(op["label"], str):
-            return None, "ops[%d].label must be a string" % i, None
+            return None, "ops[%d].label 必须是字符串" % i, None
         cleaned.append({
             "search": op["search"],
             "replace": op.get("replace", ""),
@@ -474,8 +484,8 @@ def load_insert_ops(ops_arg, from_file):
     返回 (ops, err, hint)；fail-closed：任一字段非法 → err（hint 仅在载体解码失败时非空）。"""
     if from_file:
         if not os.path.isfile(from_file):
-            return None, "ops file not found: %s" % from_file, None
-        raw, rerr, rhint = read_utf8_sidecar(from_file, "ops file")
+            return None, "ops 载体文件不存在：%s" % from_file, None
+        raw, rerr, rhint = read_utf8_sidecar(from_file, "ops 载体")
         if rerr:
             return None, rerr, rhint
     else:
@@ -483,31 +493,31 @@ def load_insert_ops(ops_arg, from_file):
     try:
         ops = json.loads(raw)
     except json.JSONDecodeError as e:
-        return None, "ops JSON parse error: %s" % e, None
+        return None, "ops JSON 解析错误：%s" % e, None
     if not isinstance(ops, list):
-        return None, "ops must be a JSON array", None
+        return None, "ops 必须是 JSON 数组", None
     cleaned = []
     for i, op in enumerate(ops):
         if not isinstance(op, dict):
-            return None, "ops[%d] must be a JSON object" % i, None
+            return None, "ops[%d] 必须是 JSON 对象" % i, None
         if "anchor" not in op or not isinstance(op["anchor"], str) or op["anchor"] == "":
-            return None, "ops[%d] must have a non-empty string 'anchor'" % i, None
+            return None, "ops[%d] 必须含非空字符串 'anchor'" % i, None
         if "\r" in op["anchor"] or "\n" in op["anchor"]:
-            return None, "ops[%d].anchor must not contain line breaks" % i, None
+            return None, "ops[%d].anchor 不得包含换行" % i, None
         if "text" not in op or not isinstance(op["text"], str):
-            return None, "ops[%d] must have a string 'text'" % i, None
+            return None, "ops[%d] 必须含字符串 'text'" % i, None
         where = op.get("where", "before")
         if where not in ("before", "after"):
-            return None, "ops[%d].where must be 'before'|'after'" % i, None
+            return None, "ops[%d].where 必须是 'before'|'after'" % i, None
         occurrence = op.get("occurrence")
         if occurrence is not None:
             if not isinstance(occurrence, int) or isinstance(occurrence, bool) or occurrence <= 0:
-                return None, "ops[%d].occurrence must be a positive integer" % i, None
+                return None, "ops[%d].occurrence 必须是正整数" % i, None
         trim = op.get("trim", False)
         if not isinstance(trim, bool):
-            return None, "ops[%d].trim must be a boolean" % i, None
+            return None, "ops[%d].trim 必须是布尔值" % i, None
         if "label" in op and not isinstance(op["label"], str):
-            return None, "ops[%d].label must be a string" % i, None
+            return None, "ops[%d].label 必须是字符串" % i, None
         cleaned.append({
             "anchor": op["anchor"],
             "text": op["text"],
@@ -526,7 +536,7 @@ def apply_ops(text, ops):
     whole = any(("\n" in normalize_lf(o["search"])) or ("\n" in normalize_lf(o["replace"])) for o in ops)
     if whole:
         if detect_line_ending(text) == "mixed":
-            return None, None, "cannot apply multi-line op to a mixed-line-ending file (fail-closed); normalize line endings first"
+            return None, None, "混合行尾文件不支持多行 op（fail-closed）；请先统一行尾"
         cur = normalize_lf(text)
         for i, o in enumerate(ops):
             s = normalize_lf(o["search"])
@@ -601,28 +611,28 @@ def _locate(off, starts, rows):
     return i + 1, off - starts[i] + 1, content
 
 
-def cmd_find(path, pattern, pattern_file, explicit, ignore_case, max_count, verbose=False):
+def cmd_find(path, pattern, pattern_file, explicit, ignore_case, max_count, verbose=False, regex=False):
     if pattern is None:
         if pattern_file is None:
-            return emit(err_json("find requires a pattern or --pattern-file", EXIT_ERROR), EXIT_ERROR)
-        pattern, perr, phint = read_utf8_sidecar(pattern_file, "pattern file")
+            return emit(err_json("find 需要 pattern 或 --pattern-file", EXIT_ERROR), EXIT_ERROR)
+        pattern, perr, phint = read_utf8_sidecar(pattern_file, "pattern 载体")
         if perr:
             return emit(err_json(perr, EXIT_ERROR, phint), EXIT_ERROR)
         pattern = re.sub(r"(?:\r\n|\r|\n)$", "", pattern, count=1)
     if not pattern:
-        return emit(err_json("empty pattern", EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("模式为空", EXIT_ERROR), EXIT_ERROR)
     if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不是常规文件：%s" % path, EXIT_ERROR), EXIT_ERROR)
     try:
         data = read_bytes(path)
     except OSError as e:
-        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("IO 错误：%s" % e, EXIT_ERROR), EXIT_ERROR)
     enc, bom, de = resolve_source_encoding(path, data, explicit)
     if de:
-        return emit(err_json(de, EXIT_ERROR, "use --encoding to specify the file encoding"), EXIT_ERROR)
+        return emit(err_json(de, EXIT_ERROR, "请用 --encoding 显式指定文件编码"), EXIT_ERROR)
     res = decode_with_bom(data, enc)
     if res is None:
-        return emit(err_json("strict decode failed as %s" % enc, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格解码失败" % enc, EXIT_ERROR), EXIT_ERROR)
     text, bom_kind = res
     det = None if explicit else detect_file(path)
     line_end = det["lineEnding"] if det else detect_line_ending(text)
@@ -633,39 +643,54 @@ def cmd_find(path, pattern, pattern_file, explicit, ignore_case, max_count, verb
     for content, term in rows:
         starts.append(off)
         off += len(content) + len(term)
-    if ignore_case:
-        search, orig_idx = _build_fold_map(work)
-        pat = normalize_lf(pattern).casefold()
-        if not pat:
-            return emit(err_json("empty folded pattern", EXIT_ERROR), EXIT_ERROR)
-        patlen = len(pat)
-        step = patlen
-    else:
-        search = work
-        orig_idx = None
-        pat = normalize_lf(pattern)
-        patlen = len(pat)
-        step = patlen
     matches = []
     total = 0
-    pos = 0
-    while True:
-        idx = search.find(pat, pos)
-        if idx < 0:
-            break
-        total += 1
-        if total <= max_count:
-            o_off = orig_idx[idx] if ignore_case else idx
-            line_no, col, row_text = _locate(o_off, starts, rows)
-            matches.append({
-                "line": line_no,
-                "col": col,
-                "text": _clip(row_text, 200),
-                "snippet": _clip(row_text.strip(), 200),
-            })
-        pos = idx + step
-        if step <= 0:
-            break
+    if regex:
+        flags = re.MULTILINE | (re.IGNORECASE if ignore_case else 0)
+        try:
+            rx = re.compile(normalize_lf(pattern), flags)
+        except re.error as e:
+            return emit(err_json("正则表达式非法：%s" % e, EXIT_ERROR), EXIT_ERROR)
+        for m in rx.finditer(work):
+            total += 1
+            if total <= max_count:
+                line_no, col, row_text = _locate(m.start(), starts, rows)
+                matches.append({
+                    "line": line_no,
+                    "col": col,
+                    "text": _clip(row_text, 200),
+                    "snippet": _clip(row_text.strip(), 200),
+                })
+    else:
+        if ignore_case:
+            search, orig_idx = _build_fold_map(work)
+            pat = normalize_lf(pattern).casefold()
+            if not pat:
+                return emit(err_json("折叠后模式为空", EXIT_ERROR), EXIT_ERROR)
+            step = len(pat)
+        else:
+            search = work
+            orig_idx = None
+            pat = normalize_lf(pattern)
+            step = len(pat)
+        pos = 0
+        while True:
+            idx = search.find(pat, pos)
+            if idx < 0:
+                break
+            total += 1
+            if total <= max_count:
+                o_off = orig_idx[idx] if ignore_case else idx
+                line_no, col, row_text = _locate(o_off, starts, rows)
+                matches.append({
+                    "line": line_no,
+                    "col": col,
+                    "text": _clip(row_text, 200),
+                    "snippet": _clip(row_text.strip(), 200),
+                })
+            pos = idx + step
+            if step <= 0:
+                break
     if verbose:
         log("[verbose] find pattern=%s matchCount=%d" % (redact(pattern), total))
     return emit({"ok": True, "file": os.path.abspath(path), "encoding": enc, "bom": bom_kind,
@@ -674,27 +699,27 @@ def cmd_find(path, pattern, pattern_file, explicit, ignore_case, max_count, verb
 
 def cmd_detect(path):
     if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不是常规文件：%s" % path, EXIT_ERROR), EXIT_ERROR)
     try:
         d = detect_file(path)
     except OSError as e:
-        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("IO 错误：%s" % e, EXIT_ERROR), EXIT_ERROR)
     return emit(d, EXIT_OK)
 
 
 def cmd_read(path, out, explicit, line=None, from_line=None, to_line=None):
     if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不是常规文件：%s" % path, EXIT_ERROR), EXIT_ERROR)
     try:
         data = read_bytes(path)
     except OSError as e:
-        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("IO 错误：%s" % e, EXIT_ERROR), EXIT_ERROR)
     enc, bom, de = resolve_source_encoding(path, data, explicit)
     if de:
-        return emit(err_json(de, EXIT_ERROR, "use --encoding to specify the file encoding"), EXIT_ERROR)
+        return emit(err_json(de, EXIT_ERROR, "请用 --encoding 显式指定文件编码"), EXIT_ERROR)
     res = decode_with_bom(data, enc)
     if res is None:
-        return emit(err_json("strict decode failed as %s" % enc, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格解码失败" % enc, EXIT_ERROR), EXIT_ERROR)
     text, bom_kind = res
     if line is None and from_line is None and to_line is None:
         if out:
@@ -702,7 +727,7 @@ def cmd_read(path, out, explicit, line=None, from_line=None, to_line=None):
                 with open(out, "w", encoding="utf-8", newline="") as f:
                     f.write(text)
             except OSError as e:
-                return emit(err_json("cannot write out file: %s" % e, EXIT_ERROR), EXIT_ERROR)
+                return emit(err_json("无法写出 --out 文件：%s" % e, EXIT_ERROR), EXIT_ERROR)
             return emit({"ok": True, "out": os.path.abspath(out), "encoding": enc, "bom": bom_kind,
                          "bytesWritten": len(text.encode("utf-8"))}, EXIT_OK)
         det = detect_file(path) if not explicit else None
@@ -714,17 +739,17 @@ def cmd_read(path, out, explicit, line=None, from_line=None, to_line=None):
     rows = split_keepends(text)
     total = len(rows)
     if total == 0:
-        return emit(err_json("empty file has no lines to read", EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("空文件没有可读取的行", EXIT_ERROR), EXIT_ERROR)
     if line is not None:
         if line > total:
-            return emit(err_json("line %d out of range (file has %d lines)" % (line, total), EXIT_ERROR), EXIT_ERROR)
+            return emit(err_json("行号 %d 超出范围（文件共 %d 行）" % (line, total), EXIT_ERROR), EXIT_ERROR)
         start_idx = line - 1
         end_idx = line
         from_line_eff = line
         to_line_eff = line
     else:
         if from_line > total:
-            return emit(err_json("from line %d out of range (file has %d lines)" % (from_line, total), EXIT_ERROR), EXIT_ERROR)
+            return emit(err_json("起始行 %d 超出范围（文件共 %d 行）" % (from_line, total), EXIT_ERROR), EXIT_ERROR)
         start_idx = from_line - 1
         end_idx = to_line if to_line <= total else total
         from_line_eff = from_line
@@ -735,7 +760,7 @@ def cmd_read(path, out, explicit, line=None, from_line=None, to_line=None):
             with open(out, "w", encoding="utf-8", newline="") as f:
                 f.write(body)
         except OSError as e:
-            return emit(err_json("cannot write out file: %s" % e, EXIT_ERROR), EXIT_ERROR)
+            return emit(err_json("无法写出 --out 文件：%s" % e, EXIT_ERROR), EXIT_ERROR)
         return emit({"ok": True, "out": os.path.abspath(out), "encoding": enc, "bom": bom_kind,
                      "bytesWritten": len(body.encode("utf-8")),
                      "fromLine": from_line_eff, "toLine": to_line_eff, "totalLines": total}, EXIT_OK)
@@ -747,37 +772,40 @@ def cmd_read(path, out, explicit, line=None, from_line=None, to_line=None):
     return EXIT_OK
 def cmd_replace(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose, force):
     if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不是常规文件：%s" % path, EXIT_ERROR), EXIT_ERROR)
     ops, oerr, ohint = load_ops(ops_arg, from_file)
     if oerr:
         return emit(err_json(oerr, EXIT_ERROR, ohint), EXIT_ERROR)
     try:
         data = read_bytes(path)
     except OSError as e:
-        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
-    enc, bom, de = resolve_source_encoding(path, data, explicit)
+        return emit(err_json("IO 错误：%s" % e, EXIT_ERROR), EXIT_ERROR)
+    enc, bom, de = resolve_source_encoding(path, data, explicit, for_write=True)
     if de:
-        return emit(err_json(de, EXIT_ERROR, "use --encoding to specify the file encoding"), EXIT_ERROR)
+        return emit(err_json(de, EXIT_ERROR, "请用 --encoding 显式指定文件编码"), EXIT_ERROR)
     res = decode_with_bom(data, enc)
     if res is None:
-        return emit(err_json("strict decode failed as %s (fail-closed; nothing written)" % enc, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格解码失败（fail-closed；未写盘）" % enc, EXIT_ERROR), EXIT_ERROR)
     text, bom_kind = res
     new_text, counts, whole_mode = apply_ops(text, ops)
     if new_text is None:
         return emit(err_json(whole_mode, EXIT_ERROR), EXIT_ERROR)
     unmatched = [ops[i]["label"] for i in range(len(ops)) if counts[i] == 0]
     if unmatched and not force:
-        return emit(err_json("%d op(s) unmatched; nothing written (fail-closed)" % len(unmatched), EXIT_UNMATCHED,
-                             "use --force to apply matched ops anyway"), EXIT_UNMATCHED)
+        return emit(err_json("%d 条 op 未命中；未写盘（fail-closed）" % len(unmatched), EXIT_UNMATCHED,
+                             "如需应用已命中项，可使用 --force"), EXIT_UNMATCHED)
     if dry_run:
         preview = [{"label": ops[i]["label"], "count": counts[i]} for i in range(len(ops))]
         return emit({"ok": True, "dryRun": True, "applied": sum(1 for c in counts if c > 0),
                      "matches": preview, "unmatched": unmatched, "warnings": []}, EXIT_UNMATCHED if unmatched else EXIT_OK)
     out_enc = enc
     out_bom = bom_kind if bom_kind != "none" else "none"
+    _cd = check_write_encoding_decision(out_enc, new_text)
+    if _cd:
+        return emit(err_json(_cd, EXIT_ERROR, "本工具不做编码假设；请按项目约定显式指定 --encoding"), EXIT_ERROR)
     payload = encode_with_bom(new_text, out_enc, out_bom)
     if payload is None:
-        return emit(err_json("strict encode failed as %s (fail-closed; nothing written)" % out_enc, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格编码失败（fail-closed；未写盘）" % out_enc, EXIT_ERROR), EXIT_ERROR)
     if verbose:
         verbose_hex(data, "original")
         verbose_hex(payload, "result")
@@ -789,7 +817,7 @@ def cmd_replace(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbos
     try:
         write_with_backup(path, payload, backup=True)
     except OSError as e:
-        return emit(err_json("write failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("写入失败：%s" % e, EXIT_ERROR), EXIT_ERROR)
     backup_final, cleanup, damaged = post_write_cleanup(path, new_text, out_enc, keep_backup)
     if verbose:
         log("[verbose] wrote %d bytes; backup=%s; cleanup=%s" % (len(payload), backup_final, cleanup))
@@ -802,7 +830,7 @@ def cmd_replace(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbos
 
 def cmd_insert(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose, force):
     if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不是常规文件：%s" % path, EXIT_ERROR), EXIT_ERROR)
     ops, oerr, ohint = load_insert_ops(ops_arg, from_file)
     if oerr:
         return emit(err_json(oerr, EXIT_ERROR, ohint), EXIT_ERROR)
@@ -812,24 +840,24 @@ def cmd_insert(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose
     try:
         data = read_bytes(path)
     except OSError as e:
-        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
-    enc, bom, de = resolve_source_encoding(path, data, explicit)
+        return emit(err_json("IO 错误：%s" % e, EXIT_ERROR), EXIT_ERROR)
+    enc, bom, de = resolve_source_encoding(path, data, explicit, for_write=True)
     if de:
-        return emit(err_json(de, EXIT_ERROR, "use --encoding to specify the file encoding"), EXIT_ERROR)
+        return emit(err_json(de, EXIT_ERROR, "请用 --encoding 显式指定文件编码"), EXIT_ERROR)
     res = decode_with_bom(data, enc)
     if res is None:
-        return emit(err_json("strict decode failed as %s (fail-closed; nothing written)" % enc, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格解码失败（fail-closed；未写盘）" % enc, EXIT_ERROR), EXIT_ERROR)
     text, bom_kind = res
     line_end = detect_line_ending(text)
     if line_end == "mixed":
-        return emit(err_json("mixed line endings not supported for insert; normalize first (fail-closed; nothing written)", EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("insert 不支持混合行尾；请先统一（fail-closed；未写盘）", EXIT_ERROR), EXIT_ERROR)
     end = "\r\n" if line_end == "crlf" else "\r" if line_end == "cr" else "\n"
     rows = split_keepends(text)
     if rows == []:
         unmatched = [o["label"] for o in ops]
         if not force:
-            return emit(err_json("%d op(s) unmatched; nothing written (fail-closed)" % len(unmatched), EXIT_UNMATCHED,
-                                 "use --force to apply matched ops anyway"), EXIT_UNMATCHED)
+            return emit(err_json("%d 条 op 未命中；未写盘（fail-closed）" % len(unmatched), EXIT_UNMATCHED,
+                                 "如需应用已命中项，可使用 --force"), EXIT_UNMATCHED)
         return emit({"ok": True, "applied": 0, "matches": [], "backup": None, "cleanup": None,
                      "dryRun": False, "warnings": [{"label": l} for l in unmatched]}, EXIT_UNMATCHED)
     applied = []
@@ -854,14 +882,14 @@ def cmd_insert(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose
             idx = matches[o["occurrence"] - 1] if o["occurrence"] is not None else matches[0]
             applied.append((idx, o["where"], parts, o["label"]))
     if ambiguous is not None:
-        return emit(err_json("ambiguous anchor (multiple matches, no occurrence): %s (fail-closed; nothing written)" % ambiguous, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("锚点不唯一（多处命中且未指定 occurrence）：%s（fail-closed；未写盘）" % ambiguous, EXIT_ERROR), EXIT_ERROR)
     if unmatched and not force:
-        return emit(err_json("%d op(s) unmatched; nothing written (fail-closed)" % len(unmatched), EXIT_UNMATCHED,
-                             "use --force to apply matched ops anyway"), EXIT_UNMATCHED)
+        return emit(err_json("%d 条 op 未命中；未写盘（fail-closed）" % len(unmatched), EXIT_UNMATCHED,
+                             "如需应用已命中项，可使用 --force"), EXIT_UNMATCHED)
     seen = {}
     for idx, where, parts, label in applied:
         if idx in seen:
-            return emit(err_json("conflicting inserts on the same original line (%d); split into separate calls (fail-closed; nothing written)" % (idx + 1), EXIT_ERROR), EXIT_ERROR)
+            return emit(err_json("同一原始行上存在冲突插入（第 %d 行）；请拆分为多次调用（fail-closed；未写盘）" % (idx + 1), EXIT_ERROR), EXIT_ERROR)
         seen[idx] = label
     if dry_run:
         return emit({"ok": True, "dryRun": True, "applied": len(applied),
@@ -881,16 +909,19 @@ def cmd_insert(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose
     new_text = "".join(content + term for content, term in work)
     out_enc = enc
     out_bom = bom_kind if bom_kind != "none" else "none"
+    _cd = check_write_encoding_decision(out_enc, new_text)
+    if _cd:
+        return emit(err_json(_cd, EXIT_ERROR, "本工具不做编码假设；请按项目约定显式指定 --encoding"), EXIT_ERROR)
     payload = encode_with_bom(new_text, out_enc, out_bom)
     if payload is None:
-        return emit(err_json("strict encode failed as %s (fail-closed; nothing written)" % out_enc, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格编码失败（fail-closed；未写盘）" % out_enc, EXIT_ERROR), EXIT_ERROR)
     if verbose:
         verbose_hex(data, "original")
         verbose_hex(payload, "result")
     try:
         write_with_backup(path, payload, backup=True)
     except OSError as e:
-        return emit(err_json("write failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("写入失败：%s" % e, EXIT_ERROR), EXIT_ERROR)
     backup_final, cleanup, damaged = post_write_cleanup(path, new_text, out_enc, keep_backup)
     warnings = [{"label": l} for l in unmatched] if unmatched else []
     return emit({"ok": True, "applied": len(applied),
@@ -901,26 +932,26 @@ def cmd_insert(path, ops_arg, from_file, explicit, dry_run, keep_backup, verbose
 
 def cmd_convert(path, to, from_enc, bom_policy, line_ending, dry_run, keep_backup):
     if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不是常规文件：%s" % path, EXIT_ERROR), EXIT_ERROR)
     if not to:
-        return emit(err_json("--to <encoding> is required", EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("必须指定 --to <encoding>", EXIT_ERROR), EXIT_ERROR)
     to_orig = to
     to = normalize_explicit(to)
     if to is None:
         low = to_orig.lower()
         if low in ("utf-16", "utf_16", "utf16"):
-            return emit(err_json("--to %s is ambiguous; use utf-16-le or utf-16-be" % to_orig, EXIT_ERROR), EXIT_ERROR)
-        return emit(err_json("--to %s is not supported (UTF-32); convert with an external tool" % to_orig, EXIT_ERROR), EXIT_ERROR)
+            return emit(err_json("--to %s 有歧义；请使用 utf-16-le 或 utf-16-be" % to_orig, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不支持 --to %s（UTF-32）；请先用外部工具转码" % to_orig, EXIT_ERROR), EXIT_ERROR)
     try:
         data = read_bytes(path)
     except OSError as e:
-        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
-    src_enc, src_bom, de = resolve_source_encoding(path, data, from_enc)
+        return emit(err_json("IO 错误：%s" % e, EXIT_ERROR), EXIT_ERROR)
+    src_enc, src_bom, de = resolve_source_encoding(path, data, from_enc, for_write=True)
     if de:
-        return emit(err_json(de, EXIT_ERROR, "use --from to specify the source encoding"), EXIT_ERROR)
+        return emit(err_json(de, EXIT_ERROR, "请用 --from 显式指定源编码"), EXIT_ERROR)
     res = decode_with_bom(data, src_enc)
     if res is None:
-        return emit(err_json("strict decode failed as %s (fail-closed; nothing written)" % src_enc, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格解码失败（fail-closed；未写盘）" % src_enc, EXIT_ERROR), EXIT_ERROR)
     text, bom_kind = res
     if line_ending == "crlf":
         text = normalize_lf(text).replace("\n", "\r\n")
@@ -944,14 +975,14 @@ def cmd_convert(path, to, from_enc, bom_policy, line_ending, dry_run, keep_backu
             target_bom = "utf-16be"
     payload = encode_with_bom(text, to, target_bom)
     if payload is None:
-        return emit(err_json("strict encode failed as %s (fail-closed; nothing written)" % to, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格编码失败（fail-closed；未写盘）" % to, EXIT_ERROR), EXIT_ERROR)
     if dry_run:
         return emit({"ok": True, "dryRun": True, "from": src_enc, "to": to, "bom": target_bom,
                      "lineEnding": line_ending, "backup": None, "cleanup": None}, EXIT_OK)
     try:
         write_with_backup(path, payload, backup=True)
     except OSError as e:
-        return emit(err_json("write failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("写入失败：%s" % e, EXIT_ERROR), EXIT_ERROR)
     backup_final, cleanup, damaged = post_write_cleanup(path, text, to, keep_backup)
     return emit({"ok": True, "from": src_enc, "to": to, "bom": target_bom,
                  "lineEnding": line_ending, "dryRun": False,
@@ -966,10 +997,10 @@ def cmd_create(path, line_ending, bom, dry_run):
     无 .orig（新文件没有写前状态）；写前验证通过才落盘；任何失败都不产生文件。
     """
     if os.path.lexists(path):
-        return emit(err_json("target already exists: %s" % path, EXIT_ERROR, CREATE_HINT_EXISTS), EXIT_ERROR)
+        return emit(err_json("目标已存在：%s" % path, EXIT_ERROR, CREATE_HINT_EXISTS), EXIT_ERROR)
     parent = os.path.dirname(os.path.abspath(path))
     if not os.path.isdir(parent):
-        return emit(err_json("parent directory does not exist: %s" % parent, EXIT_ERROR, CREATE_HINT_PARENT), EXIT_ERROR)
+        return emit(err_json("父目录不存在：%s" % parent, EXIT_ERROR, CREATE_HINT_PARENT), EXIT_ERROR)
     end = "\r\n" if line_ending == "crlf" else "\n"
     if bom in ("utf-16-le", "utf-16-be"):
         enc = bom
@@ -980,10 +1011,10 @@ def cmd_create(path, line_ending, bom, dry_run):
     text = SENTINEL + end
     payload = encode_with_bom(text, enc, bom_kind)
     if payload is None:
-        return emit(err_json("strict encode failed as %s (fail-closed; nothing written)" % enc, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格编码失败（fail-closed；未写盘）" % enc, EXIT_ERROR), EXIT_ERROR)
     rt = decode_with_bom(payload, enc)
     if rt is None or rt[0] != text:
-        return emit(err_json("pre-write validation failed (fail-closed; nothing written)", EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("写前校验失败（fail-closed；未写盘）", EXIT_ERROR), EXIT_ERROR)
     out = {"ok": True, "created": not dry_run, "file": os.path.abspath(path), "sentinel": SENTINEL,
            "encoding": enc, "bom": bom_kind, "lineEnding": line_ending, "bytes": len(payload),
            "dryRun": bool(dry_run), "backup": None, "cleanup": None, "damaged": verify_text(text, enc)["damaged"]}
@@ -992,7 +1023,7 @@ def cmd_create(path, line_ending, bom, dry_run):
     try:
         atomic_write(path, payload)
     except OSError as e:
-        return emit(err_json("write failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("写入失败：%s" % e, EXIT_ERROR), EXIT_ERROR)
     return emit(out, EXIT_OK)
 
 
@@ -1042,26 +1073,26 @@ def post_write_cleanup(path, text, enc, keep_backup):
 
 def cmd_verify(path, explicit):
     if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不是常规文件：%s" % path, EXIT_ERROR), EXIT_ERROR)
     try:
         data = read_bytes(path)
     except OSError as e:
-        return emit(err_json("IO error: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("IO 错误：%s" % e, EXIT_ERROR), EXIT_ERROR)
     det = detect_file(path)
     enc = explicit or det["encoding"]
     if enc == "unknown":
-        return emit(err_json("unknown encoding; cannot verify", EXIT_ERROR, "use --encoding"), EXIT_ERROR)
+        return emit(err_json("编码未知；无法验证", EXIT_ERROR, "请指定 --encoding"), EXIT_ERROR)
     res = decode_with_bom(data, enc)
     if res is None:
-        return emit(err_json("strict decode failed as %s; cannot verify" % enc, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("按 %s 严格解码失败；无法验证" % enc, EXIT_ERROR), EXIT_ERROR)
     text, _ = res
     v = verify_text(text, enc)
     if v["damaged"]:
-        action = "file appears damaged; restore from backup (e.g. <file>.orig) if available and re-edit via enc replace"
+        action = "文件疑似损坏；如有备份（如 <file>.orig）请先恢复，再用 enc replace 重新编辑"
     else:
-        base = "no damage detected; safe to proceed"
+        base = "未检测到损坏；可以继续"
         if os.path.isfile(path + ".orig"):
-            action = base + " (backup snapshot retained; run `enc cleanup <file>` to remove)"
+            action = base + "（保留了备份快照；如需删除请运行 `enc cleanup <file>`）"
         else:
             action = base
     return emit({"ok": True, "file": os.path.abspath(path), "encoding": enc, "confidence": det["confidence"],
@@ -1074,23 +1105,23 @@ def cmd_verify(path, explicit):
 def cmd_cleanup(path):
     """删除 <file>.orig 单步撤销快照；幂等（无可删时 removed=null）。"""
     if not is_regular_file(path):
-        return emit(err_json("not a regular file: %s" % path, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不是常规文件：%s" % path, EXIT_ERROR), EXIT_ERROR)
     backup = path + ".orig"
     if not os.path.lexists(backup):
         return emit({"ok": True, "file": os.path.abspath(path), "removed": None}, EXIT_OK)
     if not os.path.isfile(backup):
-        return emit(err_json("backup path is not a regular file: %s" % backup, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("备份路径不是常规文件：%s" % backup, EXIT_ERROR), EXIT_ERROR)
     try:
         os.remove(backup)
     except OSError as e:
-        return emit(err_json("cleanup failed: %s" % e, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("清理失败：%s" % e, EXIT_ERROR), EXIT_ERROR)
     return emit({"ok": True, "file": os.path.abspath(path), "removed": os.path.abspath(backup)}, EXIT_OK)
 
 
 def cmd_gc(path, all_flag):
     """gc <dir> [--all]：维护命令。默认删除孤儿 .orig（target 缺失）；--all 递归删除全部。"""
     if not os.path.isdir(path):
-        return emit(err_json("not a directory: %s" % path, EXIT_ERROR), EXIT_ERROR)
+        return emit(err_json("不是目录：%s" % path, EXIT_ERROR), EXIT_ERROR)
     removed, kept = [], []
     for root, dirs, files in os.walk(path):
         for fn in sorted(files):
@@ -1109,238 +1140,136 @@ def cmd_gc(path, all_flag):
     return emit({"ok": True, "dir": os.path.abspath(path), "removed": removed, "kept": kept}, EXIT_OK)
 
 
-USAGE = """usage: enc <subcommand> [options]
-
-subcommands:
-  detect <file>
-  find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]
-  read <file> [--out <utf8-path>] [--encoding <enc>]
-          [--line N] [--from-line N --to-line M]
-  create <file> [--line-ending lf|crlf] [--bom none|utf-8|utf-16-le|utf-16-be] [--dry-run]
-  replace <file> <ops-json> | --from-file <ops-file>
-          [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
-  insert <file> <ops-json> | --from-file <ops-file>
-          [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]
-  convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep]
-          [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]
-  verify <file> [--encoding <enc>]
-  cleanup <file>
-  gc <dir> [--all]
-
-Global: -h, --help                     show this help; exit 0
-        help <subcommand>              show subcommand help
-        <subcommand> --help            show subcommand help
-Note: --no-backup was removed (bottom line: writes always make a backup).
-"""
+import argparse
 
 
-
-def take_option(args, flag, need_value=False):
-    """扫描 args 取选项；返回 (剩余 args, 值 or None)。支持 --flag value 与 --flag=value。
-    布尔旗标命中时值为 True。"""
-    rest = []
-    value = None
-    found = False
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a.startswith(flag + "="):
-            found = True
-            value = a[len(flag) + 1:]
-            i += 1
-            continue
-        if a == flag:
-            found = True
-            if need_value:
-                if i + 1 < len(args):
-                    value = args[i + 1]
-                    i += 2
-                    continue
-                else:
-                    value = None
-                    i += 1
-                    continue
-            value = True
-            i += 1
-            continue
-        rest.append(a)
-        i += 1
-    return rest, (value if found else None)
+def _emit_usage_error(message):
+    """CLI 参数错误：JSON 错误包 + exit 1（保持 0/1/2 契约）。"""
+    return emit(err_json("参数错误：%s（详见 enc --help）" % message, EXIT_ERROR), EXIT_ERROR)
 
 
-SUB_HELP = {
- "detect": "enc detect <file>\n  Detect encoding/confidence/BOM/lineEnding/suggestedAction.\n",
- "find": "enc find <file> <pattern> | --pattern-file <utf8-file> [--encoding <enc>] [--ignore-case] [--max-count N] [--verbose]\n  Locate literal substring (non-regex) in decoded text; output JSON matchCount/matches.\n",
- "read": "enc read <file> [--out <utf8-path>] [--encoding <enc>] [--line N] [--from-line N --to-line M]\n  Decode to UTF-8 (stdout or --out); does not modify the file. With line args, output only selected lines.\n",
- "create": "enc create <file> [--line-ending lf|crlf] [--bom none|utf-8|utf-16-le|utf-16-be] [--dry-run]\n  Create a new file containing only the ASCII sentinel line (anchor); fails if the target exists.\n",
- "replace": "enc replace <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Byte-safe replace; writes always make a backup; default verifies & auto-removes .orig; --keep-backup retains it.\n",
- "insert": "enc insert <file> <ops-json> | --from-file <ops-file> [--encoding <enc>] [--dry-run] [--keep-backup] [--verbose] [--force]\n  Insert whole line(s) before/after the line matching an anchor (whole-line match); byte-safe, backup/verify like replace.\n",
- "convert": "enc convert <file> --to <enc> [--from <enc>] [--bom add|remove|keep] [--line-ending keep|crlf|lf] [--dry-run] [--keep-backup]\n  Transcode preserving encoding/BOM/line ending; default verifies & auto-removes .orig.\n",
- "verify": "enc verify <file> [--encoding <enc>]\n  Scan for U+FFFD / ? density / mojibake patterns; suggests restore or cleanup (conditional on .orig).\n",
- "cleanup": "enc cleanup <file>\n  Remove <file>.orig single-step snapshot (maintenance).\n",
- "gc": "enc gc <dir> [--all]\n  Maintenance: remove orphan .orig (target missing); --all removes all *.orig under dir.\n",
-}
+class _Parser(argparse.ArgumentParser):
+    """argparse 包装：用法错误改为 JSON 错误包，退出码统一为 1。"""
 
-def sub_help(name):
-    txt = SUB_HELP.get(name)
-    if not txt:
-        return emit(err_json("unknown subcommand: %s" % name, EXIT_ERROR), EXIT_ERROR)
-    sys.stdout.write(txt)
-    return EXIT_OK
+    def error(self, message):
+        emit(err_json("参数错误：%s（详见 enc --help）" % message, EXIT_ERROR), EXIT_ERROR)
+        raise SystemExit(EXIT_ERROR)
 
 
-COMMANDS = {"detect", "find", "read", "create", "replace", "insert", "convert", "verify", "cleanup", "gc"}
+def _build_parser():
+    p = _Parser(
+        prog="enc",
+        description="encoding-safe-edit：文本文件编码安全的读 / 写 / 改（fail-closed、写前备份、写后验证）。",
+        epilog="退出码：0 成功；1 错误（参数错误 / IO / fail-closed）；2 业务性预期分支（未命中）。",
+    )
+    p.add_argument("--version", action="version", version="enc 1.1.0 (encoding-safe-edit)")
+    sub = p.add_subparsers(dest="cmd", metavar="<subcommand>")
 
+    s = sub.add_parser("detect", help="检测文件编码 / 置信度 / BOM / 行尾")
+    s.add_argument("file", metavar="<file>", help="目标文件路径")
+
+    s = sub.add_parser("find", help="定位（默认字面匹配；--regex 启用正则）")
+    s.add_argument("file", metavar="<file>", help="目标文件路径")
+    s.add_argument("pattern", nargs="?", metavar="<pattern>", help="搜索串（中文 / 特殊字符请用 --pattern-file）")
+    s.add_argument("--pattern-file", dest="pattern_file", metavar="<utf8-file>", help="从 UTF-8 文件读取模式（与 <pattern> 二选一）")
+    s.add_argument("--encoding", metavar="<enc>", help="显式指定源文件编码")
+    s.add_argument("--ignore-case", dest="ignore_case", action="store_true", help="忽略大小写")
+    s.add_argument("--regex", action="store_true", help="把模式按正则表达式解释（非法正则 fail-closed）")
+    s.add_argument("--max-count", dest="max_count", type=int, default=100, metavar="N", help="最多返回 N 条匹配（默认 100）")
+    s.add_argument("--verbose", action="store_true", help="输出诊断日志到 stderr")
+
+    s = sub.add_parser("read", help="按原编码解码输出（stdout 或 --out）")
+    s.add_argument("file", metavar="<file>", help="目标文件路径")
+    s.add_argument("--out", metavar="<utf8-path>", help="写 UTF-8 到指定文件（机器消费场景）")
+    s.add_argument("--encoding", metavar="<enc>", help="显式指定源文件编码（歧义时必填）")
+    s.add_argument("--line", type=int, metavar="N", help="只输出第 N 行")
+    s.add_argument("--from-line", dest="from_line", type=int, metavar="N", help="起始行（含；与 --line 互斥）")
+    s.add_argument("--to-line", dest="to_line", type=int, metavar="M", help="结束行（含）")
+
+    s = sub.add_parser("create", help="创建仅含哨兵行的新文件（随后用 insert / replace 写入内容）")
+    s.add_argument("file", metavar="<file>", help="目标文件路径")
+    s.add_argument("--line-ending", dest="line_ending", choices=["lf", "crlf"], default="lf", help="行尾风格（默认 lf）")
+    s.add_argument("--bom", choices=["none", "utf-8", "utf-16-le", "utf-16-be"], default="none", help="BOM 策略：none / utf-8 / utf-16-le / utf-16-be（默认 none）")
+    s.add_argument("--dry-run", dest="dry_run", action="store_true", help="只预览不写盘（未命中先 exit 2）")
+
+    for _name, _verb in (("replace", "字面替换"), ("insert", "按锚点整行插入")):
+        s = sub.add_parser(_name, help=_verb + "（写路径：内置检测 / 备份 / 写后验证）")
+        s.add_argument("file", metavar="<file>", help="目标文件路径")
+        s.add_argument("ops_json", nargs="?", metavar="<ops-json>", help="内联 ops JSON（与 --from-file 二选一）")
+        s.add_argument("--from-file", dest="from_file", metavar="<ops-file>", help="从 UTF-8 载体文件读取 ops")
+        s.add_argument("--encoding", metavar="<enc>", help="显式指定源文件编码（歧义时必填）")
+        s.add_argument("--dry-run", dest="dry_run", action="store_true", help="只预览不写盘（未命中先 exit 2）")
+        s.add_argument("--keep-backup", dest="keep_backup", action="store_true", help="保留 .orig 单步快照（默认写后验证通过即删）")
+        s.add_argument("--verbose", action="store_true", help="输出匹配明细 / 诊断日志")
+        s.add_argument("--force", action="store_true", help="未命中项不阻塞；应用已命中项")
+
+    s = sub.add_parser("convert", help="转码（保留 BOM / 行尾策略）")
+    s.add_argument("file", metavar="<file>", help="目标文件路径")
+    s.add_argument("--to", required=True, metavar="<enc>", help="目标编码（必填）")
+    s.add_argument("--from", dest="from_enc", metavar="<enc>", help="源编码（缺省时按检测结果）")
+    s.add_argument("--bom", choices=["add", "remove", "keep"], default="keep", help="BOM 策略：add / remove / keep（默认 keep）")
+    s.add_argument("--line-ending", dest="line_ending", choices=["keep", "crlf", "lf"], default="keep", help="行尾策略：keep / lf / crlf（默认 keep）")
+    s.add_argument("--dry-run", dest="dry_run", action="store_true", help="只预览不写盘")
+    s.add_argument("--keep-backup", dest="keep_backup", action="store_true", help="保留 .orig 单步快照（默认写后验证通过即删）")
+
+    s = sub.add_parser("verify", help="扫描 U+FFFD / 乱码特征（只读）")
+    s.add_argument("file", metavar="<file>", help="目标文件路径")
+    s.add_argument("--encoding", metavar="<enc>", help="显式指定源文件编码（歧义时必填）")
+
+    s = sub.add_parser("cleanup", help="删除 <file>.orig 单步快照（维护）")
+    s.add_argument("file", metavar="<file>", help="目标文件路径")
+
+    s = sub.add_parser("gc", help="清理孤儿 .orig（维护）")
+    s.add_argument("dir", metavar="<dir>", help="扫描目录")
+    s.add_argument("--all", dest="all_flag", action="store_true", help="删除目录下全部 *.orig")
+
+    return p
 def main(argv):
-    if not argv:
-        sys.stderr.write(USAGE)
-        return EXIT_ERROR
-    sub = argv[0]
-    args = argv[1:]
-    if sub in ("-h", "--help"):
-        sys.stdout.write(USAGE)
-        return EXIT_OK
-    if sub == "help":
-        if len(args) != 1:
-            return emit(err_json("help requires exactly one <subcommand>", EXIT_ERROR), EXIT_ERROR)
-        return sub_help(args[0])
-    if sub in COMMANDS and any(a in ("--help", "-h") for a in args):
-        return sub_help(sub)
-    if "--no-backup" in args:
-        return emit(err_json("--no-backup was removed; writes always make a backup (bottom line)", EXIT_ERROR), EXIT_ERROR)
-    if sub == "detect":
-        if len(args) != 1:
-            return emit(err_json("detect requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-        return cmd_detect(args[0])
-    if sub == "create":
-        args, le = take_option(args, "--line-ending", True)
-        args, bom = take_option(args, "--bom", True)
-        args, dry = take_option(args, "--dry-run")
-        for a in args:
-            if a.startswith("-"):
-                return emit(err_json("create: unexpected option: %s" % a, EXIT_ERROR, CREATE_HINT_OPTS), EXIT_ERROR)
-        if len(args) != 1:
-            return emit(err_json("create requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-        if le is not None and le not in ("lf", "crlf"):
-            return emit(err_json("--line-ending must be lf|crlf", EXIT_ERROR), EXIT_ERROR)
-        if bom is not None and bom not in ("none", "utf-8", "utf-16-le", "utf-16-be"):
-            return emit(err_json("--bom must be none|utf-8|utf-16-le|utf-16-be", EXIT_ERROR), EXIT_ERROR)
-        return cmd_create(args[0], le or "lf", bom or "none", dry is not None)
-    if sub == "read":
-        args, out = take_option(args, "--out", True)
-        args, enc = take_option(args, "--encoding", True)
-        args, line_opt = take_option(args, "--line", True)
-        args, from_opt = take_option(args, "--from-line", True)
-        args, to_opt = take_option(args, "--to-line", True)
-        if len(args) != 1:
-            return emit(err_json("read requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-        line = from_line = to_line = None
-        if line_opt is not None or from_opt is not None or to_opt is not None:
-            def _pos(v):
-                try:
-                    n = int(v)
-                    return n if n > 0 else None
-                except (ValueError, TypeError):
-                    return None
-            if line_opt is not None:
-                line = _pos(line_opt)
-                if line is None:
-                    return emit(err_json("--line must be a positive integer", EXIT_ERROR), EXIT_ERROR)
-            if from_opt is not None:
-                from_line = _pos(from_opt)
-                if from_line is None:
-                    return emit(err_json("--from-line must be a positive integer", EXIT_ERROR), EXIT_ERROR)
-            if to_opt is not None:
-                to_line = _pos(to_opt)
-                if to_line is None:
-                    return emit(err_json("--to-line must be a positive integer", EXIT_ERROR), EXIT_ERROR)
-            if line is not None and (from_line is not None or to_line is not None):
-                return emit(err_json("--line cannot be combined with --from-line/--to-line", EXIT_ERROR), EXIT_ERROR)
-            if (from_line is None) != (to_line is None):
-                return emit(err_json("--from-line and --to-line must be used together", EXIT_ERROR), EXIT_ERROR)
-            if from_line is not None and from_line > to_line:
-                return emit(err_json("--from-line must be <= --to-line", EXIT_ERROR), EXIT_ERROR)
-        return cmd_read(args[0], out, enc, line, from_line, to_line)
-    if sub == "find":
-        args, pfile = take_option(args, "--pattern-file", True)
-        args, enc = take_option(args, "--encoding", True)
-        args, ic = take_option(args, "--ignore-case")
-        args, verb = take_option(args, "--verbose")
-        args, mc = take_option(args, "--max-count", True)
-        max_count = 100
-        if mc is not None:
-            try:
-                max_count = int(mc)
-            except ValueError:
-                return emit(err_json("--max-count must be a positive integer", EXIT_ERROR), EXIT_ERROR)
-            if max_count <= 0:
-                return emit(err_json("--max-count must be a positive integer", EXIT_ERROR), EXIT_ERROR)
-        if pfile is not None:
-            if not os.path.isfile(pfile):
-                return emit(err_json("pattern file not found: %s" % pfile, EXIT_ERROR), EXIT_ERROR)
-            if len(args) != 1:
-                return emit(err_json("find --pattern-file requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-            return cmd_find(args[0], None, pfile, enc, ic is not None, max_count, verb is not None)
-        if len(args) != 2:
-            return emit(err_json("find requires <file> <pattern> or --pattern-file <file>", EXIT_ERROR), EXIT_ERROR)
-        return cmd_find(args[0], args[1], None, enc, ic is not None, max_count, verb is not None)
-    if sub == "replace":
-        args, ff = take_option(args, "--from-file", True)
-        args, enc = take_option(args, "--encoding", True)
-        args, dry = take_option(args, "--dry-run")
-        args, kb = take_option(args, "--keep-backup")
-        args, verb = take_option(args, "--verbose")
-        args, force = take_option(args, "--force")
-        if ff is not None:
-            if len(args) != 1:
-                return emit(err_json("replace --from-file requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-            return cmd_replace(args[0], None, ff, enc, dry is not None, kb is not None, verb is not None, force is not None)
-        if len(args) != 2:
-            return emit(err_json("replace requires <file> <ops-json> or --from-file <ops-file>", EXIT_ERROR), EXIT_ERROR)
-        return cmd_replace(args[0], args[1], None, enc, dry is not None, kb is not None, verb is not None, force is not None)
-    if sub == "insert":
-        args, ff = take_option(args, "--from-file", True)
-        args, enc = take_option(args, "--encoding", True)
-        args, dry = take_option(args, "--dry-run")
-        args, kb = take_option(args, "--keep-backup")
-        args, verb = take_option(args, "--verbose")
-        args, force = take_option(args, "--force")
-        if ff is not None:
-            if len(args) != 1:
-                return emit(err_json("insert --from-file requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-            return cmd_insert(args[0], None, ff, enc, dry is not None, kb is not None, verb is not None, force is not None)
-        if len(args) != 2:
-            return emit(err_json("insert requires <file> <ops-json> or --from-file <ops-file>", EXIT_ERROR), EXIT_ERROR)
-        return cmd_insert(args[0], args[1], None, enc, dry is not None, kb is not None, verb is not None, force is not None)
-    if sub == "convert":
-        args, to = take_option(args, "--to", True)
-        args, frm = take_option(args, "--from", True)
-        args, bom = take_option(args, "--bom", True)
-        args, le = take_option(args, "--line-ending", True)
-        args, dry = take_option(args, "--dry-run")
-        args, kb = take_option(args, "--keep-backup")
-        if len(args) != 1:
-            return emit(err_json("convert requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-        if bom is not None and bom not in ("add", "remove", "keep"):
-            return emit(err_json("--bom must be add|remove|keep", EXIT_ERROR), EXIT_ERROR)
-        if le is not None and le not in ("keep", "crlf", "lf"):
-            return emit(err_json("--line-ending must be keep|crlf|lf", EXIT_ERROR), EXIT_ERROR)
-        return cmd_convert(args[0], to, frm, bom or "keep", le or "keep", dry is not None, kb is not None)
-    if sub == "verify":
-        args, enc = take_option(args, "--encoding", True)
-        if len(args) != 1:
-            return emit(err_json("verify requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-        return cmd_verify(args[0], enc)
-    if sub == "cleanup":
-        if len(args) != 1:
-            return emit(err_json("cleanup requires exactly one <file>", EXIT_ERROR), EXIT_ERROR)
-        return cmd_cleanup(args[0])
-    if sub == "gc":
-        args, allf = take_option(args, "--all")
-        if len(args) != 1:
-            return emit(err_json("gc requires exactly one <dir>", EXIT_ERROR), EXIT_ERROR)
-        return cmd_gc(args[0], allf is not None)
-    return emit(err_json("unknown subcommand: %s" % sub, EXIT_ERROR), EXIT_ERROR)
+    if "--no-backup" in argv:
+        return emit(err_json("--no-backup 已移除：写路径恒先备份（底线不可关闭）", EXIT_ERROR), EXIT_ERROR)
+    args = _build_parser().parse_args(argv)
+    if args.cmd is None:
+        return _emit_usage_error("缺少子命令，详见 enc --help")
+    if args.cmd == "detect":
+        return cmd_detect(args.file)
+    if args.cmd == "find":
+        if (args.pattern is None) == (args.pattern_file is None):
+            return _emit_usage_error("find 需要 <pattern> 或 --pattern-file（二选一）")
+        if args.max_count <= 0:
+            return _emit_usage_error("--max-count 必须是正整数")
+        if args.pattern_file is not None and not os.path.isfile(args.pattern_file):
+            return emit(err_json("pattern 载体不存在：%s" % args.pattern_file, EXIT_ERROR), EXIT_ERROR)
+        return cmd_find(args.file, args.pattern, args.pattern_file, args.encoding,
+                        args.ignore_case, args.max_count, args.verbose, args.regex)
+    if args.cmd == "read":
+        if args.line is not None and (args.from_line is not None or args.to_line is not None):
+            return _emit_usage_error("--line 不能与 --from-line/--to-line 组合使用")
+        if (args.from_line is None) != (args.to_line is None):
+            return _emit_usage_error("--from-line 与 --to-line 必须成对使用")
+        for v in (args.line, args.from_line, args.to_line):
+            if v is not None and v <= 0:
+                return _emit_usage_error("行号必须是正整数")
+        if args.from_line is not None and args.from_line > args.to_line:
+            return _emit_usage_error("--from-line 必须 <= --to-line")
+        return cmd_read(args.file, args.out, args.encoding, args.line, args.from_line, args.to_line)
+    if args.cmd == "create":
+        return cmd_create(args.file, args.line_ending, args.bom, args.dry_run)
+    if args.cmd in ("replace", "insert"):
+        if (args.ops_json is None) == (args.from_file is None):
+            return _emit_usage_error("%s 需要 <ops-json> 或 --from-file（二选一）" % args.cmd)
+        fn = cmd_replace if args.cmd == "replace" else cmd_insert
+        return fn(args.file, args.ops_json, args.from_file, args.encoding,
+                  args.dry_run, args.keep_backup, args.verbose, args.force)
+    if args.cmd == "convert":
+        return cmd_convert(args.file, args.to, args.from_enc, args.bom, args.line_ending,
+                           args.dry_run, args.keep_backup)
+    if args.cmd == "verify":
+        return cmd_verify(args.file, args.encoding)
+    if args.cmd == "cleanup":
+        return cmd_cleanup(args.file)
+    if args.cmd == "gc":
+        return cmd_gc(args.dir, args.all_flag)
+    return _emit_usage_error("未知子命令：%s" % args.cmd)
 
 
 if __name__ == "__main__":

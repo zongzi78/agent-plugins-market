@@ -1,65 +1,60 @@
 # 场景用例（examples.md）
 
-> 深度参考：可照抄的完整示例。实际行为以 SKILL.md 为准。
+> 深度参考：可照抄的完整示例。**只含两类**：默认路径示例（全程不出现 `detect` / `--dry-run` / `verify`）与例外示例（标题已标注触发条件）。实际行为以 SKILL.md 与 `enc <sub> -h` 为准。
 
 ## 目录
 
+**默认路径**（read → ops → replace；无额外步骤）
+
 - [1. 场景 A：修改 GBK 的 C/C++ 源文件（最常见事故）](#1-场景-a修改-gbk-的-cc-源文件最常见事故)
 - [2. 场景 B：UTF-8 带 BOM 文件](#2-场景-butf-8-带-bom-文件)
-- [3. 场景 C：把 GBK 转成 UTF-8](#3-场景-c把-gbk-转成-utf-8)
-- [4. 场景 D：Big5 繁体文件（显式编码）](#4-场景-dbig5-繁体文件显式编码)
-- [5. 场景 E：日文 Shift_JIS（显式编码）](#5-场景-e日文-shift_jis显式编码)
-- [6. 场景 F：事后验证与备份恢复](#6-场景-f事后验证与备份恢复)
-- [7. 场景 G：dry-run 与批量替换](#7-场景-gdry-run-与批量替换)
-- [8. 场景 H：看似 UTF-8 的普通文件被中文 Windows 默认 ANSI 写坏](#8-场景-h看似-utf-8-的普通文件被中文-windows-默认-ansi-写坏)
 - [9. 场景 I：定位文本 + 按行读取（find + read 行范围）](#9-场景-i定位文本--按行读取find--read-行范围)
 - [10. 场景 J：在某行前/后插入一整行（enc insert）](#10-场景-j在某行前后插入一整行enc-insert)
 - [11. 场景 K：新建文件并一次性写入全文（enc create + 跨行 replace）](#11-场景-k新建文件并一次性写入全文enc-create--跨行-replace)
 - [12. 场景 L：新建文件并增量构建（哨兵当游标 + 收尾）](#12-场景-l新建文件并增量构建哨兵当游标--收尾)
+
+**例外路径**（标题即触发条件）
+
+- [3. 场景 C：把 GBK 转成 UTF-8](#3-场景-c把-gbk-转成-utf-8) —— 触发：需要转码
+- [4. 场景 D：Big5 繁体文件（显式编码）](#4-场景-dbig5-繁体文件显式编码) —— 触发：遗留编码不在自动判定集
+- [5. 场景 E：日文 Shift_JIS（显式编码）](#5-场景-e日文-shift_jis显式编码) —— 同上
+- [6. 场景 F：事后验证与备份恢复](#6-场景-f事后验证与备份恢复) —— 触发：需要出证据 / 审计排查
+- [7. 场景 G：dry-run 与批量替换](#7-场景-gdry-run-与批量替换) —— 触发：多 op / 首次改该文件 / 大文件 / 不可逆改动
+- [8. 场景 H：看似 UTF-8 的普通文件被中文 Windows 默认 ANSI 写坏](#8-场景-h看似-utf-8-的普通文件被中文-windows-默认-ansi-写坏) —— 触发：编码漂移疑点 / 事故复盘
 
 ## 1. 场景 A：修改 GBK 的 C/C++ 源文件（最常见事故）
 
 ```bash
 ENC="<SKILL_DIR>/scripts/enc"
 
-# 1) 先确认编码（GBK 文件应报 gbk/high）
-$ENC detect src/monitthread.cpp
+# 1) 读一次，取到要替换的精确原文（read 内置编码检测；同文件同批次只读一次）
+$ENC read src/monitthread.cpp
 
-# 2) 把要改的"search/replace"写成 UTF-8 无 BOM 的 JSON 文件
+# 2) 把要改的"search/replace"写成 UTF-8 无 BOM 的 ops.json（同批修改合并为多个 op）
 #    ops.json: [{"search":"旧注释","replace":"新注释","label":"note1"}]
 
-# 3) 先 dry-run 预览
-$ENC replace src/monitthread.cpp --from-file ops.json --dry-run --verbose
-
-# 4) 确认无误后真正替换（自动生成 src/monitthread.cpp.orig 备份）
-#    默认事务化：写后自动验证，damaged:false 则自动删除 .orig，无需手动 cleanup
+# 3) 一次 replace 落盘：内置 检测 → 解码 → 匹配 → 备份(.orig) → 原子写 → verify → 自动清理
 $ENC replace src/monitthread.cpp --from-file ops.json
-
-# 5)（可选）事后验证；默认写后已自动验证，如需人工复核可执行
-$ENC verify src/monitthread.cpp
 ```
 
-要点：不要用 Agent 原生 Edit/Write 直接改 GBK 文件；不要用命令行传中文 ops。
+要点：**三步收工**——不要额外跑 `detect`（纯读无需先探编码）、不要例行 `--dry-run`、不要写后回读自检；只在命中例外清单时才加（见场景 F / G）。
 
 ## 2. 场景 B：UTF-8 带 BOM 文件
 
 ```powershell
 $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 
-& $enc detect header.h
-# encoding: utf-8, bom: utf-8
-
-# 带 BOM 文件禁止原生编辑；用 enc replace（自动保留 BOM）
+& $enc read header.h
+# BOM / 行尾由写路径自动保留；无需单独 detect / verify
 & $enc replace header.h --from-file ops.json
-& $enc verify header.h
 ```
 
 ## 3. 场景 C：把 GBK 转成 UTF-8
 
 ```bash
 ENC="<SKILL_DIR>/scripts/enc"
+# 触发：需要转码（默认路径不转码）
 $ENC convert legacy.ini --to utf-8 --bom remove --line-ending keep
-$ENC verify legacy.ini
 ```
 
 需要带 BOM 则 `--bom add`；目标编码无法表示的字符会 fail-closed（退出码 1、不写盘）。
@@ -86,7 +81,7 @@ $ENC replace sjis.txt --from-file ops.json --encoding shift_jis
 $ENC convert sjis.txt --to utf-8 --from shift_jis
 ```
 
-## 6. 场景 F：事后验证与备份恢复
+## 6. 场景 F：事后验证与备份恢复（触发：需要出证据 / 审计排查，或用 `--keep-backup` 留档）
 
 ```bash
 ENC="<SKILL_DIR>/scripts/enc"
@@ -102,7 +97,7 @@ verify 会扫描 U+FFFD、`?` 密度、经典乱码模式（`锟斤拷` 等）�
 
 注意：`.orig` 只保留**最近一次写前**的状态（覆盖式单步快照）；若之后又对该文件执行过写操作，恢复的是上一写前版本。默认写后验证通过会自动删除 `.orig`；仅当使用 `--keep-backup` 或 `damaged:true` 时 `verify` 才会提示你清理/恢复。
 
-## 7. 场景 G：dry-run 与批量替换
+## 7. 场景 G：dry-run 与批量替换（触发：多 op / 首次改该文件 / 大文件 / 不可逆改动）
 
 ```bash
 ENC="<SKILL_DIR>/scripts/enc"
@@ -127,20 +122,13 @@ $ENC replace file.txt --from-file ops.json
 ```powershell
 $enc = Join-Path "<SKILL_DIR>" "scripts\enc.ps1"
 
-# 1) detect 确认编码（utf-8/high、无 BOM）
-& $enc detect notes.md
-
-# 2) 不要用 Set-Content 默认行为；用 enc replace 走字节路径
+# 不要用 Set-Content / 原生 Write 的默认行为；用 enc replace 走字节路径
 #    ops.json: [{"search":"旧文本","replace":"新文本","label":"note"}]
-& $enc replace notes.md --from-file ops.json --dry-run --verbose
+& $enc read notes.md
 & $enc replace notes.md --from-file ops.json
-
-# 3) 事后验证
-& $enc verify notes.md
 ```
 
-要点：即便 detect 报 utf-8/high，写入仍一律走 `enc replace`（无豁免）；任何工具的默认行为都可能破坏编码；
-在中文 Windows 上仍优先走 `enc`，或显式 UTF-8 读写并 `verify`。
+要点：即便文件看着是 UTF-8，写入也一律走 `enc replace`（无豁免）；任何原生工具的默认行为都可能破坏编码。
 
 ## 9. 场景 I：定位文本 + 按行读取（find + read 行范围）
 
@@ -180,8 +168,8 @@ cat > insert.json <<'EOF'
   {"anchor":"### 2.3 xxx","where":"before","text":"something add here。","label":"note"}
 ]
 EOF
-$ENC insert src/notes.md --from-file insert.json --dry-run
 $ENC insert src/notes.md --from-file insert.json
+# 仅在命中例外清单（多 op / 首次改该文件 / 大文件 / 不可逆改动）时，才先加 --dry-run 预览
 
 # 多行 text + 多命中 occurrence：
 #   {"anchor":"## 2.2 前面内容","where":"after","text":"补充段落\n第二行","occurrence":2,"trim":true}

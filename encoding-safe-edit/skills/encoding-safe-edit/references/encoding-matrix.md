@@ -43,17 +43,17 @@
 
 ## 3. 工具能力矩阵
 
-| 能力 | enc.py | enc.js | probes/detect.ps1 | probes/detect.sh |
-|------|--------|--------|-------------------|------------------|
-| detect（自动判定集） | ✓（权威） | ✓ | 测试/开发用独立 oracle | 测试/开发用独立 oracle |
-| detect（unknown 候选提示） | ✓ | ✓ | ✗ | ✗ |
-| read / replace / convert / verify | ✓ | ✓ | ✗ | ✗ |
-| 显式遗留编码（big5 等） | ✓ | ✓ | ✗ | ✗ |
-| 依赖 | Python 3.7+ 标准库 | Node + 自带 codec 数据（enc.gbkdata.js） | .NET（PS 内置） | iconv + coreutils |
+| 能力 | enc.py | probes/detect.ps1 | probes/detect.sh |
+|------|--------|-------------------|------------------|
+| detect（自动判定集） | ✓（权威，Python 标准库 codec） | 测试/开发用独立 oracle | 测试/开发用独立 oracle |
+| detect（unknown 候选提示） | ✓ | ✗ | ✗ |
+| read / replace / convert / verify | ✓ | ✗ | ✗ |
+| 显式遗留编码（big5 等） | ✓ | ✗ | ✗ |
+| 依赖 | Python 3.7+ 标准库（2026-10-09 起 Python-only，无 JS 实现与内置数据表） | .NET（PS 内置） | iconv + coreutils |
 
-- `enc`/`enc.ps1` 启动器探测顺序：`uv(run python) → python3 → python → py -3 → node`；Python 系（含 uv 管理的 Python）优先，Node 兜底。`--runtime` 支持 `auto/python3/python/py -3/uv/node`：`auto` 按上述顺序，显式值只探测并只使用该命令，不可用即 fail-closed。
-- 固定运行时的工作区可直连：`uv run --no-project <SKILL_DIR>/scripts/enc.py <subcommand> ...` 或 `node <SKILL_DIR>/scripts/enc.js <subcommand> ...`；直连跳过运行时探测与兜底。
-- 双实现一致性契约：enc.js 与 enc.py 严格语义一致（以 enc.py 为基准）；codec 数据由 Python 标准库 codec 实测生成并内置（`enc.gbkdata.js`）。
+- `enc`/`enc.ps1` 启动器探测顺序：`uv(run python) → python3 → python`（2026-10-09 起 Python-only，移除 `py -3` 与 `node` 回退）。`--runtime` 支持 `auto/uv/python3/python`：`auto` 按上述顺序，显式值只探测并只使用该命令，不可用即 fail-closed。
+- 固定运行时的工作区可直连：`uv run --no-project <SKILL_DIR>/scripts/enc.py <subcommand> ...`（Python-only；直连跳过运行时探测与兜底）。
+- Python-only（2026-10-09）：移除 enc.js 与全部内置 codec 数据表；能力全部由 enc.py（标准库 codec）提供，不再存在双实现一致性维护面。
 
 ## 4. 严格解码器差异
 
@@ -79,5 +79,5 @@
 - 自动判定默认集：UTF-8（含 BOM）/ GBK / GB18030 / UTF-16（带 BOM）；其余经 `--encoding` / `--from` / `--to` 显式指定。
 - UTF-32 不支持（detect 归 unknown；显式 `--encoding`/`--to`/`--from` 亦拒绝，需先用外部工具转码）。
 - 无 BOM UTF-16：ASCII-heavy 经全局 NUL 密度预检降为 medium + 提示；纯 CJK 无 BOM UTF-16 与 GBK 无法可靠区分 → 按 GBK 处理并保留风险说明。
-- GB18030 4 字节映射（enc.js 数据依据）：BMP 区 idx 0–39419（分段线性，206 段），增补区 idx 189000–1237575（cp = idx − 123464），idx 39420–188999 为非法空洞。U+10000 编码为 `90 30 81 30`（不是 `81 30 81 30`）。
+- GB18030 4 字节映射（Python 标准库 codec 依据）：BMP 区 idx 0–39419（分段线性，206 段），增补区 idx 189000–1237575（cp = idx − 123464），idx 39420–188999 为非法空洞。U+10000 编码为 `90 30 81 30`（不是 `81 30 81 30`）。
 - Big5 / Shift_JIS / EUC-JP / EUC-KR 双字节内容几乎都能被 GB18030 2 字节区接受（实测 23940/23940 全覆盖）→ detect 不会判出这些编码，必须显式指定。
