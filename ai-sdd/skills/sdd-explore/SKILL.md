@@ -193,14 +193,16 @@ description: >
 
 ### 阶段 5：方案评审
 
-plan.md 写入后，将方案评审**委托**给 sdd-review：调用 `sdd-review(artifact=plan.md, criteria=方案评审标准, depth=声明/默认中杯, artifact_path=.ai/changes/<target>/plan.md, workdir=项目根)`。
+plan.md 写入后，调用 `sdd-review(artifact=文档/计划类, criteria=方案评审标准, depth=声明/默认中杯, artifact_path=.ai/changes/<target>/plan.md, workdir=项目根, diff 基线=全量或修订 diff)`。
 
-> 评审由 sdd-review 派发的**独立 reviewer subagent** 完成（评审独立性铁律），不由本 agent（sdd-explore）自审；本 agent 只负责提供 `criteria`（为「方案评审标准」章节的实际检查项内容，非仅名称）与消费「评审记录」。
+> **不内联全文**：只传路径 + criteria + diff 基线；reviewer 自行按需读取工件（首轮全量；方案修订后的复评提供修订 diff）。
+
+> 评审由**独立 reviewer subagent** 完成（评审独立性铁律），不由本 agent 自审；本 agent 负责提供 `criteria`（为「方案评审标准」章节的实际检查项内容，非仅名称）与约束注入，并消费「评审记录」。
 
 - **PASS** → 进入闸门（阶段 6）。
-- **需要修复**（sdd-review 反馈 Critical/Important）→ 由引擎内部循环继续（主 agent 在循环内修复、再评审），调用方仅消费最终「评审记录」。
-- **暂停 / ESCALATE_TO_HUMAN**（达到评审上限或发现设计矛盾）→ 暂停报告人类，质疑方案本身。
-- 将 sdd-review 输出的「评审记录」写入 plan.md 末尾。
+- **需要修复**（评审反馈 Critical/Important）→ 由评审引擎内部循环继续（主 agent 在循环内修复、再评审），调用方仅消费最终「评审记录」。
+- **未收敛**（达到轮数上限或发现设计矛盾）→ 停止循环，输出未收敛报告（未决项 + 建议）。
+- 将「评审记录」写入 plan.md 末尾。
 
 ### 阶段 6：更新状态与提交审阅（闸门）
 
@@ -224,7 +226,9 @@ plan.md 写入后，将方案评审**委托**给 sdd-review：调用 `sdd-review
 
 ## 方案评审标准
 
-这是 sdd-explore 提供给 sdd-review 的 `criteria`（plan review 检查清单）：
+这是本阶段随评审调用提供的 `criteria`（plan review 检查清单）：
+
+> 机械项（占位符 / 勾选一致性 / 链接与路径 / 编号引用 / diff 范围 / 台账格式）由前置机械核查（checks）覆盖，本清单只列语义判断项。
 
 1. **范围覆盖**：plan 是否覆盖 proposal 全部范围；有无越界新增。
 2. **任务分解**：任务是否可独立完成、粒度是否可验证。
@@ -296,6 +300,6 @@ plan.md 写入后，将方案评审**委托**给 sdd-review：调用 `sdd-review
   > ✅ 方案已批准（status: approved）。通过 /sdd-apply 开始编码。
   > （若已声明自动放行：「自动放行已启用」，plan 通过 review 后即转 apply）
 
-- **评审暂停时提示**：`⏸ 方案评审暂停（sdd-review 返回暂停 / ESCALATE_TO_HUMAN 结果，或发现方案与代码现实矛盾）。请人工确认方案或调整设计后再继续。`
+- **评审未收敛时提示**：`⏸ 方案评审未收敛（达到轮数上限或发现设计矛盾）。请确认方案或调整设计后重入。`
 - **如发现 proposal 需调整**：`⚠️ 探索过程中发现提案需要调整，建议先更新 proposal.md 再继续。`
 - ⚠️ **提交 plan.md 前的最终自检**：确认已逐项完成阶段 4 第 5 步的覆盖性自检 8 项。每一项必须提供证据（如"B-003 的入口变更已反映在任务 2 步骤 3"），不可仅打勾。如有任何一项无法提供证据 → 回到对应阶段补充。

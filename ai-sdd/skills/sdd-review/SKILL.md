@@ -1,8 +1,8 @@
 ---
 name: sdd-review
 description: >
-  工件无关的统一质量闸门引擎。定义质量循环（审 + 修 + 回归）：审由独立 reviewer subagent 执行，修由主 agent 在循环内执行。不负责「审什么、按什么标准审」。
-  被 sdd-explore（plan review）与 sdd-apply（变更产物 review）作为闸门引擎调用，也可作为公开审查工具独立调用。
+  工件无关的统一质量闸门引擎。定义质量循环（首轮审 + 修 + 回归 + 终审）：审由独立 reviewer subagent 执行，修由主 agent 在循环内执行，终审由新眼睛放行。不负责「审什么、按什么标准审」。
+  被上游流程作为质量闸门调用；也可独立调用（独立调用无需上游体系知识）。
   触发词：review、帮我审查、帮我 review、看看这份 plan、审这轮改动、审查这份文档
 ---
 
@@ -10,169 +10,174 @@ description: >
 
 ## 定位
 
-sdd-review 是一个工件无关的**质量循环引擎**，不是新的流程阶段。它在内部**定义循环（loop）**与**档位（中 / 大 / 超大杯）**：循环 = 审 + 修 + 回归；「审」由独立 reviewer subagent 执行，「修」由主 agent 在循环内执行（见「评审独立性」与「循环驱动算法」）。它不负责「审什么、按什么标准审」——后者由工件所属 skill（sdd-explore 提供方案评审标准、sdd-apply 提供产物评审标准）通过 `criteria` 参数传入。
+sdd-review 是一个工件无关的**质量循环引擎**，不是新的流程阶段。它在内部定义循环（首轮 → 修复 → 回归 → 终审）与档位（中杯 / 大杯 / 超大杯）：「审」由独立 reviewer subagent 执行，「修」由主 agent 在循环内执行，**终审由未参与修复回归的新 reviewer 放行（PASS 即终止）**。它不负责「审什么、按什么标准审」——后者由**调用方**通过 `criteria` 参数传入。
 
-作为引擎时，按调用方传入的 `artifact` / `criteria` / `depth` / `max_rounds` / `artifact_path` / `workdir` / `context` 运行循环；惟在用户独立调用时，可按「目标类型 + 默认标准」做轻量推断（属引擎允许的例外）。
+作为引擎时，按调用方传入的 `artifact` / `criteria` / `depth` / `max_rounds` / `artifact_path` / `workdir` / `context` / `diff 基线` 运行循环；惟在用户独立调用时，可按「目标类型 + 默认标准」做轻量推断（属引擎允许的例外）。
 
-它只做质量循环引擎，不用于诊断/一致性检测（ai-sdd-check / ai-sdd-diagnose），不做文档影响映射（sdd-sync）。
+它只做质量循环引擎：只处理调用方传入的工件与标准，不做工件之外的扫描、诊断或归并。
 
 ## 评审独立性（铁律）
 
-评审**必须**由独立的 reviewer subagent 执行。调用方 / 编排方 agent（sdd-explore、sdd-apply）不得自任 reviewer，也不得用自己刚审阅过该工件的上下文「直接读一遍」代替评审；评审动作须 dispatch 一个**独立上下文**的 reviewer subagent 执行。独立性是评审可信度的唯一来源——主 agent 对自身编排或生产的工件存在确认偏置，自审会系统性漏检。
+- 评审**必须**由独立上下文的 reviewer subagent 执行（按 `prompts/reviewer.md` 构造 prompt）；调用方 / 编排方 agent 不得自任 reviewer，也不得用自己刚审阅过该工件的上下文「直接读一遍」代替评审。
+- 独立性 = **独立上下文 + 不是产出者**；不要求每轮更换 reviewer（回归轮优先复用同一 reviewer 会话）。
+- 若运行环境无法派发 subagent（或无法获得与主 agent 隔离的独立上下文），须先说明「独立性受限、评审不可信」，以受限方式继续并报告；此路径不代表评审具独立性，属兜底降级。
 
-每次 dispatch reviewer subagent 必须按 `prompts/reviewer.md` 模板构造其 prompt（见「循环驱动算法」入口）。
+## 前置：机械事实核查（checks，仅限 AI-SDD 产出物）
 
-若运行环境无法派发 subagent（或无法获得与主 agent 隔离的独立上下文），须先向人类明确说明「独立性受限、评审不可信」，以受限方式继续并报告人类；此路径**不代表评审具独立性**，属兜底降级，非常规路径。
+> **适用范围**：本阶段仅对 AI-SDD 体系内的产出物生效；独立调用本 skill 或评审其他工件时跳过本阶段（如需，可显式要求执行）。
+
+适用时，派发 reviewer 之前运行一次机械事实核查脚本 `scripts/checks`（Windows：`scripts\checks.ps1`；Unix：`scripts/checks`；参数详见 `--help`）：
+
+- 有 FAIL → 主 agent 先修机械项 → 重跑 checks → 直到无 FAIL；**FAIL 期间不派 reviewer**。
+- WARN → 记录，不阻塞。
+- checks 通过后，其输出（事实清单）作为 reviewer 输入的一部分随附。
+
+checks 只做事实核查（编号与引用 / 文件与链接存在性 / 模板必需字段 / 占位符残留 / 勾选与状态一致性 / diff 范围 vs plan / 台账格式），不做语义评审。
 
 ## 调用方式
 
-### 作为闸门引擎（被 explore / apply 调用）
+### 作为闸门引擎（被上游流程调用）
 
-调用方（sdd-explore / sdd-apply）进入本引擎（同一主 agent 会话），传入 `artifact` / `criteria` / `depth` / `artifact_path` / `workdir` / `context`；引擎据此运行内部循环，产出「评审记录」（PASS / ESCALATE_TO_HUMAN / 暂停）。修复由主 agent 在循环内执行（见「循环驱动算法」）。
+调用方进入本引擎（同一主 agent 会话），传入 `artifact` / `criteria` / `depth` / `artifact_path` / `workdir` / `context` / `diff 基线`；引擎据此运行内部循环，产出「评审记录」（PASS / 未收敛）。修复由主 agent 在循环内执行。
 
 ### 独立调用（用户直接触发）
 
-用户直接调用时，可只给目标与（可选）深度，其余走默认：
-
-- `/sdd-review <目标> [深度]`；`<目标>` 可省略（默认当前 change 的 plan 或最新的变更产物），`深度` 可省略（默认中杯）。
-- 目标类型推断：`.md` 文档若非 change 交付产物 → 按文档/计划类归一到通用质量闸门（见下方「独立调用默认标准」）；变更产物（代码/文档/配置等，含作为 change 交付物的 `.md`）→ 按产物类归一到通用质量闸门；无法判断时向用户确认一次（不再追问其它）。
+- `/sdd-review <目标> [深度]`；`<目标>` 可省略（默认最近一次被审工件），`深度` 可省略（默认中杯）。
+- 目标类型推断：文档/计划类工件 → 按文档类归一到通用质量闸门；产物类（代码/文档/配置等）→ 按产物类归一到通用质量闸门；无法判断时向用户确认一次（不再追问其它）。
 - 默认：深度=中杯；max_rounds=6；标准 = 按目标类型推导的通用质量闸门 + 约束注入。
 
 ### 独立调用默认标准（通用质量闸门）
 
-独立调用（无事主 skill 提供 criteria）时，引擎使用内嵌的**通用质量闸门**兜底。它是**通用维度**，不含工件专属细则（工件专属细则以 explore/apply 传入的 criteria 为准）：
+独立调用（无事主 skill 提供 criteria）时，引擎使用内嵌的**通用质量闸门**兜底（仅通用维度，不含工件专属细则）：
 
 - **目标回应**：是否回应了初始需求/目标；有无越界新增。
 - **结构**：粒度是否可验证；依赖/顺序是否合理。
 - **覆盖**：风险与注意事项是否覆盖每个改动点。
-- **红线**：是否违反权限边界 / 文档红线（`.ai/doc/`）。
-- **一致性**：设计与代码/产物现实是否匹配（此项为评审准则，非系统性一致性检测；系统性检测属 ai-sdd-check / ai-sdd-diagnose）。
+- **红线**：是否违反项目规则声明的权限边界 / 文档红线（由调用方或项目规则界定）。
+- **一致性**：设计与代码/产物现实是否匹配（此项为评审准则；全量检测不在本引擎范围内）。
 
-若所审目标是 AI-SDD 工件（plan.md / 变更产物），且所在项目存在 `.ai/supplement-rules.md`，则读取并注入 §一/§四 + 启用的 ENV/CI/AC/DP 约束。
-
-> 独立调用使用上述通用闸门；被 explore/apply 调用时，用调用方传入的 `criteria`（工件专属标准）替代。
+约束注入由调用方随调用传入（来源与格式由调用方决定）；引擎只负责填入 reviewer 的「约束注入」槽，不自行加载任何项目文件。
 
 ## 输入参数
 
 | 参数 | 类型 | 说明 | 必填 |
 |------|------|------|------|
-| `artifact` | enum | `plan.md` \| `变更产物`（代码/文档/配置等；独立调用时由目标推断） | 调用方调用时是 / 独立调用时可省略 |
-| `criteria` | 引用/内联 | 评审检查清单**内容**（由调用方提供，传入的是实际检查项而非仅名称；独立调用时按目标类型推导默认标准） | 调用方调用时是 / 独立调用时可省略 |
-| `depth` | enum | `中杯` \| `大杯` \| `超大杯`（默认中杯） | 否 |
-| `max_rounds` | int | 默认 6 | 否 |
-| `artifact_path` | path \| path[] | 目标工件位置（单个路径或文件列表） | 调用方调用时是 / 独立调用时可省略 |
-| `workdir` | path | 读取约束/文档根 | 调用方调用时是 / 独立调用时可省略 |
-| `context` | 文本 | 调用方共享上下文（背景 / 约束 / 前一阶段信息）；引擎提取评审所需部分注入 reviewer subagent（避免把整段会话历史塞给 subagent）。上轮台账作为独立传递项，不走 context | 否 |
+| `artifact` | enum | `文档/计划类` \| `产物类`（代码/文档/配置等；独立调用时由目标推断） | 调用方调用时是 / 独立调用时可省略 |
+| `criteria` | 引用/内联 | 评审检查清单**内容**（由调用方提供，非仅名称） | 同上 |
+| `depth` | enum | `中杯`（默认）\| `大杯` \| `超大杯` | 否 |
+| `max_rounds` | int | 评审轮总上限（全局计数，见「轮数计数」），默认 6 | 否 |
+| `artifact_path` | path | 工件路径（文档/计划类工件，或产物文件列表） | 是 |
+| `workdir` | path | 项目根目录 | 是 |
+| `context` | 文本 | 调用方共享上下文（背景/约束/前一阶段信息）；引擎从中提取评审所需部分注入 reviewer，不得把整段会话历史塞给 subagent | 否 |
+| `diff 基线` | 引用 | 首轮为「全量」；回归/终审轮提供修复 diff 与受影响区域清单 | 否 |
 
-> 约束注入来自 `workdir` 下的 `.ai/supplement-rules.md`（§一、§四 + 启用的 ENV/CI/AC/DP）；不在 `workdir` 时由调用方显式传入 criteria 文本。
-## 深度档位
+## 循环算法（唯一入口）
 
-### 档位定义
+循环 = 首轮 →（修复 → 回归）* → 终审。所有 round 按**全局评审轮数**计数（首轮 / 回归 / 终审合计，见「轮数计数」）。
 
-| 档 | 内容 | 是否默认 |
-|----|------|---------|
-| 附随改动豁免（非档位） | 附带改动 / 非交付性说明（无可评审内容） | 自动 |
-| 中杯 | 单轮评审，fix → re-review 回归 | 默认（所有可执行产物/计划） |
-| 大杯 | 中杯 + 回归台账（跨轮） | 用户声明 |
-| 超大杯 | 大杯 + 多 reviewer 并行 + 多轮回归 | 用户声明 |
+### 阶段 0：前置事实核查（仅限 AI-SDD 产出物）
 
-### 附随改动豁免（自动，不进档位）
+1. 适用时（AI-SDD 产出物）：运行 `scripts/checks` 直到无 FAIL（见「前置：机械事实核查」）；不适用时跳过本阶段。
+2. 明确**职责面**：本次变更目标与验收标准（criteria）+ 被审工件与直接受影响区域（由 diff / 受影响区域清单界定）。
 
-满足以下任一条件的变更，自动跳过 review（无可评审内容）：
-- 随产物变更**附带**的纯注释、空行、格式改动（不改语义）；
-- 非交付性的附加说明（如修正既有 README 的一处笔误、补充一句注释）。
+### 阶段 1：首轮（全量）
 
-**豁免是客观判定**，不按「行数多少」裁决。凡**交付物本身**为文档/配置/说明等（作为 change 的交付内容）时**不得豁免**，一律默认中杯。豁免属「无可评审内容」的客观判定，与深度档位降级无关（见「档位选择与单向严格」）。
+1. **必须** dispatch 独立 reviewer subagent（按 `prompts/reviewer.md` 构造）：输入 = `artifact_path` + `criteria` + 约束注入 + 职责面 + 空台账。
+2. 首轮读足：全量 + 局部深挖 + 必要的针对性验证（把成本花在减少后续补漏轮上）。
+3. 输出 findings-only（见「reviewer 角色」）。
+4. 主 agent 并入台账并分类（见「职责面与三档分类」）。
 
-### 档位选择与「单向严格」
+### 阶段 2：修复与回归（按需循环）
 
-- 默认 = 中杯（explore 与 apply 统一，已确认）。
-- 人类在 prompt 声明 `用大杯/超大杯` 可上调。
-- **agent 只能向上，不能向下**：不得把中杯降到「跳过」、不得把大杯降到中杯；要降级必须显式询问人类。
-  （「附随改动豁免」是客观判定「无可评审内容」，与深度档位无关，不属此处「降级/跳过评审深度」。）
+1. 主 agent 核实并修复**确实存在的必修问题**（见「修复（Fix）」），修完自验；产出「修复 diff + 受影响区域清单」。
+2. 回归轮输入 = **完整台账 + 修复 diff + 受影响区域**；环境支持 subagent 会话复用时仍由原 reviewer 执行，否则为新的独立 subagent。
+3. **编排方（主 agent）不得以成本为由裁剪 reviewer 输入或限制其读取**；reviewer 的读取自主权定义见 `prompts/reviewer.md`。
+4. 回归输出：上轮 open 项 → closed / reopened；修复引入的新问题；新发现（按三档分类）。
+5. 退出条件：台账中职责面内无 open 的 Critical/Important，且本轮无新增职责面内 Critical/Important。
+6. 每轮结束检查总轮数是否达到 `max_rounds`；达到则停止循环并输出未收敛报告（见「停止与暂停条件」）。
 
-### MAX_ROUNDS
+### 阶段 3：终审（新眼睛放行）
 
-- **默认 6**。
-- 单工件评审达到 6 轮仍未通过 → ESCALATE_TO_HUMAN，报告人类、质疑方案本身（触发「方案/设计可能有问题」信号）。
-- 超大杯若用「连续 2 轮无新增才算稳定」，则该稳定判定嵌套在 6 轮上限之内。
-## 循环驱动算法
+1. **触发**：本循环发生过任何修复。
+2. dispatch **未参与过修复回归**的 reviewer（新上下文）：输入 = 完整台账 + 修复 diff + 受影响区域；可抽查 / 定点读；任务是独立验证「修复到位 + 无回归」。
+3. 终审 PASS → 循环结束（PASS）。**PASS 即终审，不做多级确认**。
+4. 终审提出新的 in-scope Critical/Important → 该 reviewer 转为工作轮 reviewer（由它负责后续修复回归），修完后由新的终审 reviewer 放行，直到某位终审 reviewer 的 PASS。
+5. 首轮即 PASS（从未修复）→ 无终审轮（首轮本身即新眼睛的独立评审）。
+6. 环境差异：若运行环境不支持 reviewer 会话复用（独立 subagent 为一次性调用），每轮天然为新上下文——终审规则自动满足（最后一次修复之后的那一轮即为终审），无需额外轮次。
 
-```
-# 所有 reviewer 均为独立上下文 subagent（评审独立性铁律）；每次构造 reviewer prompt 必须按 prompts/reviewer.md 模板
-ledger = []
-round = 1
-loop:
-  # 回归（Regression）—— 所有档位都执行
-  if ledger 非空:
-    reviewer_subagent 核对 ledger 每条：是否已落实？修复区域有无新回归？
-    # 结果写入 ledger 状态（open→closed / 新回归→reopen）
-  # 新鲜 review（Fresh）
-  findings = reviewer_subagent 按 criteria 整体审（含约束注入，复查上轮触碰区域）
-  if reviewer_subagent 连续返回 BLOCKED: result = 暂停; break
-  # 分级（Triage）
-  merge(findings, ledger)   # 关闭已解决、新增新问题
-  # 收口（Exit）
-  if 台账中无未关闭的 Critical/Important 且 findings 无 Critical/Important:   # Minor 不阻塞、仅记录
-    result = PASS; break   # 以台账+findings 为准（reviewer「通过/不通过」供引擎判断，非唯一依据）
-  if round >= max_rounds:
-    result = ESCALATE_TO_HUMAN; break   # 质疑方案本身
-  if 触发暂停条件（reviewer 连续 BLOCKED / 用户中断 / 发现设计矛盾）:
-    result = 暂停; break
-  # 修复（Fix）—— 由主 agent 在循环内执行，不 dispatch 独立 fixer subagent
-  主 agent 针对 open 的 Critical/Important 逐项修复：只修 open 项、不越界、全部修完后重跑验证并报告
-  round += 1
-emit result + ledger 作为「评审记录」
-```
+### 修复（Fix）
 
-> 超大杯的稳定判定（连续 2 轮无新增 Critical/Important）与暂停 / ESCALATE_TO_HUMAN 退出见「各档位行为」「停止与暂停条件」；本伪代码为通用骨架。
+由主 agent 在循环内执行（不 dispatch 独立 fixer subagent）：
 
-> 中杯：因无跨轮需求，`ledger` 只保存「单次修复前后」状态（隐式回归），`max_rounds` 实际只需 1-2 轮即收敛；大杯/超大杯才用跨轮台账。
+1. **逐条核实** reviewer 提出的问题是否确实成立（对照工件与 diff，不凭声明）；
+2. 对**确实存在**的问题——属职责面内、或涉及安全 / 数据损坏 / 不可逆类——**必须修复**；修复只改本次相关工件（不越界）；
+3. 对不成立的：驳回并写明理由（记入台账）；
+4. Minor 仅记录、不阻塞；全部修完后自验并报告。
 
-## 问题台账数据结构
+## 职责面与三档分类
 
-每条 issue 含字段：
+**职责面** = 本次变更目标与验收标准（criteria）+ 被审工件与直接受影响区域（由 diff / 受影响区域清单界定）。
 
-| 字段 | 含义 | 必填 |
-|------|------|------|
-| `id` | `R<提出轮>-<SEV>-<序号>`，如 `R1-CRIT-01` | 是 |
-| `severity` | `Critical` \| `Important` \| `Minor` | 是 |
-| `desc` | 问题描述 | 是 |
-| `round_raised` | 提出轮 | 是 |
-| `status` | `open` \| `closed` \| `reopened` | 是 |
-| `round_closed` | 关闭轮（closed 时） | 否 |
-| `area` | 触达文件/章节 | 否 |
+对每一轮 findings（规则相同）：
 
-> `reopened` 表示「上一轮已修、本轮回归发现仍未好」，需重新进入修复（由主 agent 在循环内处理）。
-> 严重度缩写（CRIT/IMP/MIN）与问题编号规则为 AI-SDD 体系约定（见 .ai/doc 与 supplement-rules）。
-> 台账由主 agent 在循环内维护，每轮注入 reviewer subagent（跨轮信息传递）；中杯无跨轮台账，仅记录单次修复前后。
-## 各档位行为
+| 档 | 判定 | 处置 |
+|---|---|---|
+| 必修 | 职责面内的 Critical/Important；或涉及安全 / 数据损坏 / 不可逆类（无论落在哪里） | 主 agent 修复 → 回归核销 |
+| 路由 | 职责面外但真实存在的问题 | 记录到「评审记录」的「后续事项」段（由调用方决定后续处置与落盘位置），不阻塞本次通过 |
+| 驳回 | 偏好 / 风格 / 范围蔓延 | 记 Minor 或驳回，附理由，不阻塞 |
 
-**中杯**：产出 → 独立 reviewer subagent 单轮审 → 有 Critical/Important 则**主 agent 在循环内修** → re-review **必须**验证修复落实、有无新回归（必须回归）。无跨轮台账；中杯通常 1-2 轮收敛，未收敛则继续至 `max_rounds=6` 上限（达到上限按「停止与暂停条件」处理）。
+**归属判定分工**：reviewer 发现问题并给出 scope 建议（in/out + 依据 + 证据）；主 agent 核定归属与处置。
 
-**大杯**：产出 → 独立 reviewer subagent 第 1 轮审 → 建台账 → **主 agent 在循环内修** → 每轮先「回归台账」再由独立 reviewer subagent「新鲜 review」→ 直到台账全 closed 且本轮无新 Critical/Important。
+**硬约束（防「生产者消音」）**：
 
-**超大杯**：同大杯，但每轮并行 dispatch N 个独立 reviewer（各自独立上下文）合并发现，N 不设硬上限（建议 3）；并通过「连续 2 轮无新增 Critical/Important」判稳定，嵌套在 `max_rounds=6` 内。
+1. 主 agent 不得删除 reviewer 标为 in-scope 的 Critical/Important——只能改判，且必须写明理由；
+2. 所有改判记入台账（可审计）；分歧时默认按 in-scope 处理；
+3. 终审 reviewer 获得完整台账（含全部改判记录），可对任何改判提出异议（reopen）。
+
+## 台账
+
+台账 = 带固定格式的问题记录，由主 agent 在循环内维护；**每轮完整注入 reviewer（含 closed 项）**，不裁剪。中杯同样保留台账。
+
+条目格式：`id / severity / desc / area / evidence / scope / status`（status ∈ open / closed / reopened；round_raised / round_closed 由主 agent 回填）。
+
+## 轮数计数
+
+`max_rounds` 计**整个循环的评审轮总数**（首轮 + 回归 + 终审）：
+
+- 一轮 = 一次完整的「评审输入 → 评审结论」周期；超大杯首轮并行 N 个 reviewer 仍计 1 轮；修复动作不计轮。
+- 示例：首轮即 PASS = 1 轮；首轮 → 修 → 回归 clean → 终审 PASS = 3 轮。
+- 评审记录中分类标注：首轮 X / 回归 Y / 终审 Z。
+
+## 深度档位（中杯 / 大杯 / 超大杯）
+
+- **中杯（默认）**：首轮 →（按需）修复 / 回归 →（发生过修复时）终审。
+- **大杯**：完整台账 + 多轮回归 + 终审；其余规则相同。
+- **超大杯**：首轮并行 dispatch N 个独立 reviewer（各自独立上下文，N 显式声明、建议 3）合并 findings；「连续 2 轮无新增 Critical/Important」判稳定的既有规则保留；其余同上。
+
+### 附随改动豁免
+
+满足豁免（无可评审内容的附带改动）时可无需调用本引擎；但**交付物本身**为文档/配置等时**不得豁免**，一律默认中杯。
 
 ## reviewer 角色与 prompt 模板
 
-**reviewer 输入**：工件内容 + criteria + 约束注入 + 上轮台账（如有）。
-**reviewer 输出**：通过 / 不通过 / BLOCKED（无法评审，如工件不可读、关键上下文缺失；BLOCKED 时说明原因）+ 问题记录（台账条目：id / severity / desc / area / status；round_raised / round_closed 由主 agent 回填）。
-**reviewer 约束**：按「标定」客观赋值严重度，不主观预判/夸大；禁止忽略某类问题；只审当前工件，不越界修改工件。
+**reviewer 输入**：artifact_path + criteria + 约束注入 + 职责面 + 完整台账 +（回归/终审轮）修复 diff + 受影响区域。
+**reviewer 输出**：findings-only，字段 `id / severity / desc / area / evidence / scope(in|out) / status`；禁止复述工件、禁止长篇肯定；结论为 通过 / 不通过 / BLOCKED。
+**reviewer 约束**：按「标定」客观赋值严重度；不主观预判/夸大；只审不改；可基于具体怀疑扩大读取并说明理由。
 
-**修复（Fix）**：由主 agent 在循环内执行，不 dispatch 独立 fixer subagent；见「循环驱动算法」。
+**标定**：Critical（必须修复：功能性/内容性错误、安全问题、违反权限/文档红线）；Important（应该修复：不正确实现、遗漏需求、维护性损害）；Minor（锦上添花）。
 
 **Read [prompts/reviewer.md](prompts/reviewer.md) now** and use it as the template for constructing each reviewer's prompt.
+
 ## 评审记录（留痕）格式
 
-写入调用方指定位置（explore / apply 写到 plan.md 末尾；独立调用时直接输出）：
+写入调用方指定的位置；独立调用时直接输出：
 
 ```
 ## 评审记录
-- 工件：plan.md / 变更产物（<file list>）
-- 独立性：完整 / 受限（受限降级时记录并说明，见「评审独立性铁律」）
+- 工件：<名称或路径列表>
+- 独立性：完整 / 受限（受限降级时记录并说明）
 - 档位：大杯
-- 轮数：3
+- 轮数：首轮 1 / 回归 2 / 终审 1（合计 4）
 - 问题清单：
   - R1-CRIT-01 边界未处理 → closed in R2
   - R1-IMP-02 命名不规范 → closed in R2
@@ -184,27 +189,26 @@ emit result + ledger 作为「评审记录」
 
 | 条件 | 行为 |
 |------|------|
-| 台账中无未关闭的 Critical/Important + 本轮无新 Critical/Important（Minor 不阻塞、仅记录） | PASS，结束 |
-| 达到 `max_rounds`（默认 6） | ESCALATE_TO_HUMAN，质疑方案本身 |
+| 职责面内无未关闭的 Critical/Important + 本轮无新增职责面内 Critical/Important | 进入终审（或首轮即 PASS 时直接结束） |
+| 达到 `max_rounds`（默认 6）仍未终审通过 | 停止循环，输出未收敛报告（未决项 + 建议），由调用方决定是否重入 |
 | reviewer 连续返回 BLOCKED | 暂停，报告具体阻塞原因 |
-| 用户中断 | 暂停，保留当前台账（可恢复） |
-| 发现工件与 plan 冲突的设计矛盾（仅 artifact=变更产物 场景） | 暂停，报告矛盾点，不自行裁决 |
-| 发现 plan 与代码/产物现实矛盾（artifact=plan.md 场景） | 暂停，报告矛盾点，不自行裁决 |
+| 发现工件与其依据基线（调用方提供的上游文档/标准）冲突 | 暂停，报告矛盾点，不自行裁决 |
+| 发现依据基线与实际实现矛盾 | 暂停，报告矛盾点，不自行裁决 |
 
----
+## 常见陷阱（Gotchas）
 
-## 💡 常见陷阱（Gotchas）
-
-- **不要替调用方制定策略**：引擎不感知、不推断、不制定深度/闸门/档位；只执行传入的 `depth` / `max_rounds` / `criteria`。惟独立调用时可按「目标类型 + 默认标准」做轻量推断（见上）。
-- **criteria 永远是调用方的事**：本 skill 不内嵌 plan/产物专属标准；那些留在 sdd-explore / sdd-apply。独立调用时的「通用质量闸门」仅是兜底（属允许例外），被调用时标准一律来自调用方传入的 `criteria`。
-- **达到 max_rounds 即暂停**：不要「再多跑一轮试试」；这是收敛信号，应报告人类并质疑方案本身。
-- **中杯也必须回归**：主 agent 修复 → re-review 时必须验证修复落实 + 无新回归；虽无跨轮台账，但不可只重跑一遍即判通过。
-- **谁修**：修由主 agent 在循环内执行（针对 open 的 Critical/Important 逐项修复），reviewer 只审不改；不要派发独立 fixer subagent。
-- **超大杯并行 reviewer 独立上下文**：各 reviewer 互不看到对方 findings；由引擎合并去重。
-- **禁止主 agent 自审**：reviewer 必须派发独立 subagent；不要为了省 token 用主 agent 的上下文「直接读一遍」。凡是没有 dispatch 独立 reviewer subagent 的评审，都不是合规评审。
+- 不得删除 reviewer 标为 in-scope 的 Critical/Important（只能改判并写明理由）。
+- 编排方不得以成本为由限制 reviewer 读取；读取自主权定义见 `prompts/reviewer.md`。
+- 终审发现问题者接手工作轮，修完由新的终审放行；PASS 即终止，不做多级确认。
+- 到顶未收敛时输出未收敛报告，不引入「升级给人」步骤。
+- 不要替调用方制定策略：引擎只执行传入的 `depth` / `max_rounds` / `criteria`；独立调用时才做轻量推断。
+- 谁修：修由主 agent 在循环内执行，reviewer 只审不改；不 dispatch 独立 fixer subagent。
+- 禁止主 agent 自审：reviewer 必须派发独立 subagent（独立性铁律）。
+- 超大杯并行 reviewer 独立上下文：各 reviewer 互不看到对方 findings；由引擎合并去重。
 
 ## 联动设计
 
-- **被调用方**：sdd-explore（plan review）、sdd-apply（变更产物 review）。
-- **完成后输出**：`评审记录`（PASS / ESCALATE_TO_HUMAN / 暂停）。调用方负责将其写入 plan.md 末尾及后续（approve / auto-apply / 暂停报告）。修复由主 agent 在循环内执行（评审由独立 reviewer subagent 完成）。
+- **集成方式**：由调用方文档规定；本引擎不感知调用方与其上游体系。
+- **完成后输出**：`评审记录`（PASS / 未收敛）→ 由调用方写入其指定位置。
 - **拒绝路径**：参数缺失或 artifact 类型无法判断时（独立调用），向用户确认一次，不反复追问。
+
