@@ -4,7 +4,7 @@
 
 ```
 Subagent (general-purpose):
-  description: "评审 <artifact>（<depth> 档，第 <n> 轮：首轮 / 回归 / 终审）"
+  description: "评审 <artifact>（<depth> 档，第 <n> 轮：首轮 / 回归 / 终审；reviewer: <本循环内标识>）"
   prompt: |
     你正在评审 <artifact>。这是一次「工件级」评审，不是全量审查 / 方案重写。
 
@@ -57,6 +57,7 @@ Subagent (general-purpose):
 ## 使用说明
 
 - `criteria` 由调用方传入；本模板不含工件专属标准。
+- **reviewer 标识（复用凭据）**：首轮派发时**为该 reviewer 指定一个本循环内唯一的标识**（语义为「本循环内可指认」，具体写法由运行环境决定）并登记入台账；回归轮以该标识续接原 reviewer 会话。**无标识可指认即视为不支持复用**，走新建 subagent 路径（并在评审记录标注降级）。标识只描述「可指认」这一能力要求，不绑定任何具体工具或参数名。
 - 回归 / 终审轮：把**完整台账**（含 closed 项）注入「台账」区；修复 diff 与受影响区域必填。
 - 超大杯并行 dispatch 多个 reviewer 时，各自独立上下文，互不看到对方 findings；由引擎合并去重。
 - 「不重新运行验证」为默认建议：仅在审查引发具体怀疑时才运行针对性验证。
